@@ -1,0 +1,100 @@
+Submarine Sabotage
+By Garry Francis
+For Z-code interpreters
+
+Solution by Garry Francis
+----------------------------------------
+This is a minimal solution. You'll need to EXAMINE lots of things for this solution to make sense. Some optional (but significant) commands are shown in parentheses. These can be omitted once you know what to do.
+
+(I) (you're wearing a digital watch & blue coveralls)
+(Z) (it takes 4 hours for filtration system to clear air of toxic substances)
+SLEEP (you're woken by a bang, it feels like sub has landed on ocean floor)
+(X WATCH) (it should be safe to leave airlock now)
+OPEN INNER HATCH
+U
+(U) (opening is out of reach)
+A (you see Nelson's body)
+SEARCH NELSON (you find a screwdriver)
+GET SCREWDRIVER
+GET WD-40
+(X IT) (mentions penetrating stuck parts and lubricating almost anything)
+F
+S (you see Marshall's body)
+SEARCH MARSHALL (you find a small key)
+GET KEY
+(OPEN DESK) (it's locked)
+UNLOCK DESK WITH KEY
+OPEN IT (you find a pistol & some mission instructions)
+GET PISTOL
+(X IT) (it's only got one bullet)
+GET CHAIR
+P
+DROP CHAIR
+STAND ON IT
+(X GRILLE) (it's screwed shut)
+(UNSCREW SCREWS WITH SCREWDRIVER) (they're too tight)
+SPRAY SCREWS WITH WD-40 (you should be able to unscrew them now)
+UNSCREW SCREWS WITH SCREWDRIVER (the grille swings open)
+U
+F
+(X WIRES) (they look dangerous, so don't go fore)
+OPEN FUSE BOX (you find a fuse)
+GET FUSE (the hanging wires stop sparking)
+(X WIRES) (they look safe now)
+F
+(OPEN GRILLE) (you'll have to exert some force to do that)
+(HIT GRILLE) (you need more force than that)
+KICK GRILLE (grille swings open)
+D (you see Murphy's body)
+(X SONAR) (there's a blip on screen, a long way off & travelling slowly)
+(X PERISCOPE) (you're too deep to see anything on surface)
+(X GAUGE) (sub is at 132 feet)
+(X DIVE BUTTON) (there's a bloody fingerprint on the button)
+S (you see saboteur's body & Holland is bleeding badly)
+(X SABOTEUR) (it's Webb, he's been bashed over head & is wearing an aqualung)
+GET AQUALUNG
+(X SHOTGUN) (it's empty & there's blood on the stock)
+(X HOLLAND) (he's wearing a gas mask)
+(TALK TO HOLLAND) (you can't hear him through the gas mask)
+(GET GAS MASK)
+(TALK TO HOLLAND) (he starts mumbling incoherently about gas, saboteur & bomb)
+(ASK HIM ABOUT GAS) (it was sarin, but how would Holland hav known that?)
+(ASK HIM ABOUT SABOTEUR) (he explains what happened)
+(ASK HIM ABOUT BOMB) (something sounds suspicious)
+(G) ("You need to cut the red wire", but how does Holland know about red wire?)
+(ASK ABOUT RED WIRE) ("Don't all bombs have a red wire?")
+P
+A
+S
+(OPEN LOCKER) (it's locked)
+SHOOT LOCKER WITH PISTOL (you can now open it)
+OPEN IT (you find a wetsuit)
+GET WETSUIT
+P
+(OPEN DOOR) (you can't get to it because of the debris)
+PULL DEBRIS
+OPEN DOOR
+A
+P
+X BUNKS (you find a pair of pliers on Nelson's bunk)
+GET PLIERS
+(X IT) (used to grip, splice or cut wires, and strip insulation)
+S
+D
+CLOSE INNER HATCH
+WEAR WETSUIT (you take off the coveralls first)
+WEAR AQUALUNG
+OPEN OUTER HATCH (airlock is soon full of seawater)
+D
+A
+X BOMB (you find a red LED, red wire and green wire, do you trust Holland?)
+CUT GREEN WIRE WITH PLIERS (you've defused the bomb, now get back to surface)
+F
+U
+CLOSE OUTER HATCH (seawater is pumped out)
+OPEN INNER HATCH
+U
+F
+F
+PRESS SURFACE BUTTON
+***THE END***

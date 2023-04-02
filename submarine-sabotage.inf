@@ -1,0 +1,3331 @@
+!% -~S
+!% $OMIT_UNUSED_ROUTINES=1
+!% $ZCODE_LESS_DICT_DATA=1
+!========================================
+! Submarine Sabotage
+! Copyright © 2023 Garry Francis
+!========================================
+!Constant DEBUG;
+
+Constant Story "Submarine Sabotage";
+#Ifv5;
+Zcharacter table + '@{A9}'; !Add copyright symbol
+Constant Headline "^Copyright @{A9} 2023 Garry Francis^Type ABOUT for further info and credits.^^";
+#Ifnot;
+Constant Headline "^Copyright (c) 2023 Garry Francis^Type ABOUT for further info and credits.^^";
+#Endif;
+
+Array UUID_ARRAY string "UUID://e62d06eb-b03c-4a8d-8252-fcb956d3a8dc//";
+#Ifdef UUID_ARRAY;
+#Endif;
+
+Release 1;
+Serial "230227";
+
+!Inform 6 constants
+Constant DEATH_MENTION_UNDO;
+Constant MAX_CARRIED = 10;
+Constant NO_SCORE;
+
+Statusline time;
+
+!PunyInform constants
+Constant OPTIONAL_EXTENDED_METAVERBS;
+Constant OPTIONAL_EXTENDED_VERBSET;
+Constant OPTIONAL_FULL_DIRECTIONS;
+#Ifv5;
+Constant OPTIONAL_PROVIDE_UNDO;
+#Endif;
+Constant OPTIONAL_SHIP_DIRECTIONS;
+
+!PunyInform static messages
+Constant MSG_PARSER_UNKNOWN_VERB "That's not a verb I recognise.";
+Constant MSG_SORRY_DEFAULT "Oh, don't apologise.";
+Constant MSG_WAIT_DEFAULT "A minute passes.";
+
+!PunyInform dynamic messages
+Constant MSG_CLOSE_NOT_OPEN 1000;
+Constant MSG_LOCK_ALREADY_LOCKED 1001;
+Constant MSG_LOCK_CLOSE_FIRST 1002;
+Constant MSG_LOCK_KEY_DOESNT_FIT 1003;
+Constant MSG_UNLOCK_ALREADY_UNLOCKED 1004;
+Constant MSG_UNLOCK_KEY_DOESNT_FIT 1005;
+
+!Game-specific constants
+Constant AN "an";
+Constant SOME "some";
+Constant THE "the";
+Constant TWO "two";
+Constant ATTACHED_TO_BOMB "It's firmly attached to the bomb.";
+Constant BOTTOM_OF_OCEAN "You're on the bottom of the ocean, so you can't go any deeper.";
+Constant CLAMBER_THROUGH_OPENING "You clamber through the opening in the service duct.^^";
+Constant DROP_TO_FLOOR_BELOW "You drop to the floor below.^^";
+Constant HAD_A_SLEEP "Not now. You had a sleep in the airlock, remember?";
+Constant HULL_ABOVE_YOU "The submarine's hull prevents you going up.";
+Constant NOTHING_ELSE_TO_DO "There's nothing else to do here.";
+Constant OPENING_OUT_OF_REACH "The opening is out of your reach.";
+Constant THINKING_ABOUT_STOMACH "This is no time to be thinking about your stomach.";
+Constant UNKNOWN_TERRITORY "As you're in unknown territory and you're not familiar with the ocean currents, you'd best not venture away from the submarine.";
+
+!Game-specific variables
+Attribute underwater;
+
+!Replaced actions
+Replace GoSub;
+Replace LockSub;
+Replace UnlockSub;
+
+Include "globals.h";
+
+!========================================
+! Entry point routines
+!========================================
+[ ChooseObjects obj code;
+  if (code == 2)
+  {
+    ! Stage 1: Disambiguation
+    if (action_to_be == ##Take && obj notin player)
+      return 1; !Appropriate
+    if (action_to_be == ##Drop && obj in player && obj hasnt worn)
+      return 1; !Appropriate
+    return 0; !Inappropriate
+  }
+  ! Stage 2: Processing an "all"
+  if (obj has scenery or concealed or static or animate)
+    return 2; !Force exclusion
+  if (action_to_be == ##Take && obj ~= player && obj notin player)
+    return 1; !Force inclusion
+  if (action_to_be == ##Drop && obj in player && obj hasnt worn)
+    return 1; !Force inclusion
+  return 0; !Accept parser's decision
+];
+
+[ LibraryMessages p_msg p_arg_1 p_arg_2;
+  switch (p_msg)
+  {
+    MSG_CLOSE_NOT_OPEN:
+      print_ret (CTheyreOrIts)noun, " already closed.";
+    MSG_LOCK_ALREADY_LOCKED:
+      print_ret (CTheyreOrIts)noun, " already locked.";
+    MSG_LOCK_CLOSE_FIRST:
+      "You'll have to close ", (ItOrThem)noun, " first.";
+    MSG_LOCK_KEY_DOESNT_FIT:
+      print_ret (The)second, " ", (DoesntOrDont)second, " fit the lock.";
+    MSG_UNLOCK_ALREADY_UNLOCKED:
+      print_ret (CTheyreOrIts)noun, " already unlocked.";
+    MSG_UNLOCK_KEY_DOESNT_FIT:
+      print_ret (The)second, " ", (DoesntOrDont)second, " fit the lock.";
+  }
+  p_arg_1 = p_arg_2;
+];
+
+Include "puny.h";
+
+!========================================
+! Initialisation
+!========================================
+[ Initialise;
+  Directions.parse_name = DirectionsParseName;
+  lookmode = 2;
+  move coveralls to player;
+  give coveralls worn;
+  move watch to player;
+  give watch worn;
+  no_implicit_actions = true;
+  normal_directions_enabled = false;
+  player.description = PlayerDescription;
+  SetTime(540, 1);
+  location = room01;
+  "You are currently serving aboard the USS Ibis, the first of the US Navy's top-secret Puny class submarines. The Puny class is an attack submarine that packs maximum firepower into a minimum-sized hull. It relies on speed and stealth to surprise the enemy.^^The USS Ibis is currently on a training exercise in the North Atlantic, just off the coast of Alaska. You were doing some routine maintenance at the aft end of the submarine when the sirens sounded. You thought this might have been a training exercise until you noticed a whitish-coloured gas approaching you from the aft bulkhead. Training and instinct took over. You couldn't get to a gas mask in time, so you dived into the nearby airlock and closed the air-tight hatch behind you.^^You are now alone and have no idea what is happening throughout the rest of the sub. You can't leave the airlock through the inner hatch (the one you entered by), or you'll get gassed, and you can't leave through the outer hatch, or you'll drown. What can you do?^";
+];
+
+!========================================
+! Classes
+!========================================
+Class Body
+with
+  life
+  [;
+    Ask:
+      "You're not likely to get an answer from a lifeless body.";
+    Attack, ThrowAt:
+      "show some empathy. Allow the dead to rest in peace.";
+    Give:
+      "Dead bodies are not normally in the habit of accepting gifts.";
+    Kiss:
+      "Eww, gross.";
+    Show:
+      "The dead body shows no interest in ", (the)noun, ". I wonder why.";
+    Talk:
+      "You strike up a one-sided conversation with the dead body, but it's bored to death.";
+    Tell:
+      "The corpse listens intently to what you have to say. Or maybe it's not listening at all. It's hard to tell.";
+    WakeOther:
+      "You give ", (the)noun, " a shake, but it doesn't respond.";
+  ],
+  before
+  [;
+    Pull, Push, Take:
+      "You know better than to disturb a crime scene, as a crime has surely been committed.";
+  ],
+has animate;
+
+!========================================
+! Room 1: Airlock
+!========================================
+Object room01 "Airlock"
+with
+  description "You're in the submarine's airlock. It's a small chamber that separates the interior of the submarine from the surrounding ocean. The inner hatch allows you to go up to the main deck of the submarine. The outer hatch allows you to go down to the ocean. The safety system is fully automated with interlocks to ensure that the two hatches can't be open simultaneously.",
+  u_to inner_hatch,
+  d_to outer_hatch,
+  before
+  [;
+    Hint:
+      if (the_time < 780 && room02 hasnt visited && self.time_left == 0)
+        "You can't go up and you can't go down, so you'll just have to WAIT it out.";
+      if (the_time < 780 && room02 hasnt visited)
+        "The best way to kill time is to have a SLEEP.";
+      if (room02 hasnt visited && watch hasnt general)
+        "Did you check your watch?";
+      if (room02 hasnt visited && inner_hatch hasnt open)
+        "It's now safe to open the inner hatch.";
+      if (room02 hasnt visited)
+        "It's now safe to enter the sub through the inner hatch.";
+      if (room16 hasnt visited && outer_hatch hasnt open)
+        "You can now open the outer hatch, but make sure you are wearing something to protect you from the cold Atlantic seawater and something that allows you to breath underwater.";
+      print_ret (string)NOTHING_ELSE_TO_DO;
+    Sleep:
+      if (the_time < 780 && room02 hasnt visited)
+      {
+        SetTime(817, 1);
+        "There's nothing else you can do to kill the time, so you settle down to have a snooze. Zzzzz...^^You are suddenly woken by a bang and a shudder throughout the sub. It feels like the sub has landed on the floor of the ocean. That's not good. You wonder what's going on. You'd better check your watch to see how long you've been asleep.";
+      }
+      "You're not sleepy.";
+    Wait:
+      self.time_left++;
+      if (the_time < 780 && room02 hasnt visited && self.time_left == 1)
+        "You know from your basic training that it takes about 4 hours for the sub's filtration system to clear the air of toxic substances. You'd better settle in for a long wait. Maybe you should have a snooze.";
+      if (the_time < 780 && room02 hasnt visited && self.time_left == 5)
+        "You've got a long time to wait. Why don't you just have a sleep?";
+  ],
+  time_left 0,
+has light;
+
+!----------------------------------------
+! Submarine (floating object)
+!----------------------------------------
+Object "submarine"
+with
+  parse_name
+  [ i;
+    while (NextWord() == 'uss' or 'ibis' or 'puny' or 'class' or 'attack' or 'sub' or 'submarine')
+      i++;
+    return i;
+  ],
+  description "This is the USS Ibis, a Puny class attack submarine. It's your home for the next few months.",
+  react_before
+  [;
+    Listen:
+      if (location has underwater)
+        "The seawater blocks out all sound.";
+      else
+        "You hear the soft hum of the submarine's machinery.";
+  ],
+  found_in
+  [;
+    rtrue;
+  ],
+has scenery;
+
+!----------------------------------------
+! Airlock
+!----------------------------------------
+Object "airlock" room01
+with
+  article AN,
+  name 'airlock' 'small' 'chamber' 'interior',
+  description "It's a small chamber that's used to control the pressure and flow of water into and out of the submarine. As it's purely functional, it's devoid of any unnecessary equipment that could foul diving gear or cause harm to the occupants when seawater is pumped into or out of the chamber.",
+  before
+  [;
+    Open:
+      "You need to open one of the hatches.";
+  ],
+has scenery;
+
+!----------------------------------------
+! Safety system
+!----------------------------------------
+Object "safety system" room01
+with
+  name 'safety' 'system' 'interlock' 'interlocks//p',
+  description "The safety system is not visible, but it's comforting to know that it's there.",
+has scenery;
+
+!----------------------------------------
+! Hatches
+!----------------------------------------
+Object "hatches" room01
+with
+  name 'hatches//p',
+  description "There are two hatches, the inner hatch and the outer hatch.",
+has scenery;
+
+!----------------------------------------
+! Outer hatch (floating object)
+!----------------------------------------
+Object outer_hatch "outer hatch"
+with
+  article THE,
+  name 'outer' 'hatch',
+  description
+  [;
+    print "The outer hatch is ";
+    if (self in room01)
+      print "at your feet";
+    else
+      print "above your head";
+    print ". It provides access to the ";
+    if (self in room01)
+      print "outside of the submarine";
+    else
+      print "airlock inside the submarine";
+    print ". It's currently ";
+    if (self has open)
+      "open.";
+    else
+      "closed.";
+  ],
+  door_dir
+  [;
+    if (self in room01)
+      return d_to;
+    else
+      return u_to;
+  ],
+  door_to
+  [;
+    if (self in room01)
+      return room16;
+    else
+      return room01;
+  ],
+  before
+  [;
+    Close:
+      if (self in room01 && location has underwater)
+      {
+        give self ~open;
+        give location ~underwater;
+        MoveFloatingObjects();
+        StopDaemon(wetsuit);
+        StopDaemon(aqualung);
+        "You close the outer hatch to seal it off against the seawater. When it's fully sealed, the automated system pumps the seawater out of the airlock. You can now breathe normally.";
+      }
+    Open:
+      if (self in room01)
+      {
+        if (inner_hatch has open)
+          "The safety system prevents you opening the outer hatch while the inner hatch is open, otherwise the submarine would be flooded.";
+        print "Seawater floods into the airlock. ";
+        if (aqualung hasnt worn)
+        {
+          deadflag = 1;
+          "You suddenly realise that you have no way of breathing underwater. You try holding your breath and struggle to close the hatch again, but it's too late. The rush of seawater quickly covers your head, your breath runs out, the seawater fills your lungs and you lose consciousness.";
+        }
+        if (wetsuit hasnt worn)
+        {
+          deadflag = 1;
+          "You breathe through the aqualung as the seawater covers your head, but you quickly realise that you have no insulation against the cold Atlantic seawater. Your body turns numb as you struggle to close the hatch again, but it's too late. As you flounder about in the freezing water, you start to shiver and quickly lose consciousness.";
+        }
+      give self open;
+      give location underwater;
+      MoveFloatingObjects();
+      StartDaemon(wetsuit);
+      StartDaemon(aqualung);
+      "The wetsuit protects you from the cold. You plug the mouthpiece of the aqualung into your mouth and start breathing the life-saving oxygen. The airlock is soon full of seawater.";
+      }
+  ],
+  found_in room01 room16,
+has door openable static;
+
+!----------------------------------------
+! Inner hatch (floating object)
+!----------------------------------------
+Object inner_hatch "inner hatch"
+with
+  article THE,
+  name 'inner' 'hatch',
+  description
+  [;
+    print "The inner hatch is ";
+    if (self in room01)
+      print "above your head";
+    else
+      print "at your feet";
+    print ". It provides access to the ";
+    if (self in room01)
+      print "inner parts of the submarine";
+    else
+      print "airlock";
+    print ". It's currently ";
+    if (self has open)
+      "open.";
+    else
+      "closed.";
+  ],
+  door_dir
+  [;
+    if (self in room01)
+      return u_to;
+    else
+      return d_to;
+  ],
+  door_to
+  [;
+    if (self in room01)
+      return room02;
+    else
+      return room01;
+  ],
+  before
+  [;
+    Open:
+      if (outer_hatch has open)
+        "The safety system prevents you opening the inner hatch while the outer hatch is open, otherwise the submarine would be flooded.";
+      if (the_time < 780 && room02 hasnt visited)
+      {
+        deadflag = 1;
+        "Poisonous gas seeps into the airlock. You quickly close the hatch, but it's too late. You start gasping for breath, but the more you gasp, the worse it gets. You break out into a sweat, then start vomiting. You can't breathe. Then you pass out.";
+      }
+  ],
+  found_in room01 room02,
+has door openable static;
+
+!----------------------------------------
+! Seawater (floating object)
+!----------------------------------------
+Object "seawater"
+with
+  article "lots of",
+  name 'seawater' 'water' 'atlantic' 'ocean',
+  description "There's a lot of it.",
+  found_in
+  [;
+    if (location has underwater)
+      rtrue;
+  ],
+  react_before
+  [;
+    Swim:
+      "Just give me a direction.";
+  ],
+  before
+  [;
+    Take:
+      "You're surrounded by seawater. You can't take it with you.";
+  ],
+has static;
+
+!----------------------------------------
+! Digital watch
+!----------------------------------------
+Object watch "digital watch"
+with
+  parse_name
+  [ i;
+    while (NextWord() == 'waterproof' or 'diver^s' or 'digital' or 'watch' or 'time')
+      i++;
+    return i;
+  ],
+  description
+  [;
+    print "It's a waterproof diver's watch. It shows the time as ", (TimeOfDay)self;
+    if (the_time > 780 && room02 hasnt visited && self hasnt general)
+    {
+      give self general;
+      print " It should be safe to leave the airlock now.";
+    }
+    "";
+  ],
+has clothing;
+
+!----------------------------------------
+! Blue coveralls
+!----------------------------------------
+Object coveralls "pair of blue coveralls"
+with
+  article "a",
+  name 'blue' 'coveralls',
+  description "They're baggy blue coveralls, which is the standard shipboard working uniform. They're probably one size too big for you, but that's better than being one size too small. Being one piece, the coveralls aren't very popular because you have to get half undressed every time you want to go to the loo.",
+  before
+  [;
+    Disrobe:
+      "You can't walk around the sub in your underwear. Keep them on unless you need to wear something else.";
+    Wear:
+      if (aqualung has worn)
+        "You can't put them on over the aqualung.";
+      if (wetsuit has worn)
+        "You can't put them on over the wetsuit.";
+  ],
+has clothing pluralname;
+
+!========================================
+! Room 2: Long Corridor
+!========================================
+Object room02 "Long Corridor"
+with
+  description "You're in a long narrow corridor that goes fore and aft along the length of the sub, except for the occasional watertight bulkhead, such as the one to fore. There are exits from the corridor to port and starboard, a grille overhead and the inner hatch to the airlock in the floor.",
+  n_to aft_bulkhead,
+  s_to room03,
+  e_to room04,
+  w_to room05,
+  d_to inner_hatch,
+  u_to aft_opening,
+  before
+  [;
+    Hint:
+      if (player notin chair)
+        "That grille looks interesting, but it's out of your reach. Can you get closer? Maybe stand on something.";
+      if (aft_grille hasnt open && screwdriver in nothing)
+        "The grille is screwed shut, so you'll need something to unscrew it. Have you tried engineering?";
+      if (aft_grille hasnt open && aft_grille hasnt general)
+        "Try unscrewing the screws.";
+      if (aft_grille hasnt open && screws hasnt general)
+        "You'll need something to lubricate the screws. Have you tried engineering?";
+      if (aft_grille hasnt open)
+        "Try unscrewing the screws.";
+      "You can go up to enter the opening.";
+  ],
+has light;
+
+!----------------------------------------
+! Long corridor (floating object)
+!----------------------------------------
+Object "long corridor"
+with
+  name 'long' 'corridor' 'lighting',
+  description "It's a narrow, cramped space equipped with low-level lighting. The floor is a grate covered in a non-slip material to provide traction and reduce the risk of a fall.",
+  found_in room02 room14,
+has scenery;
+
+!----------------------------------------
+! Floor (floating object)
+!----------------------------------------
+Object "floor"
+with
+  parse_name
+  [ i;
+    while (NextWord() == 'floor' or 'grate' or 'grating' or 'non-slip' or 'material')
+      i++;
+    return i;
+  ],
+  description
+  [;
+    print "The floor is a grate covered in a non-slip material. Many a small item has been dropped on the floor, only to disappear down the grate, never to be seen again.";
+    if (self in room02 && screws in limbo)
+      print " You know the screws are down there somewhere, but you can't see them. It doesn't matter, as you won't need them again.";
+    "";
+  ],
+  found_in room02 room14,
+has scenery;
+
+!----------------------------------------
+! Aft bulkhead door (floating object)
+!----------------------------------------
+Object aft_bulkhead "bulkhead door"
+with
+  parse_name
+  [ i;
+    while (NextWord() == 'bulkhead' or 'door' or 'heavy-steel' or 'heavy' or 'steel' or 'rectangular' or 'rounded' or 'corner' or 'corners//p')
+      i++;
+    return i;
+  ],
+  description
+  [;
+    print "It's a heavy-steel, rectangular door with rounded corners and a rubber seal around the edges. It has a dog handle in the middle and a quick-release latch at the side. It's currently ";
+    if (self has open)
+      "open.";
+    else
+      "closed.";
+  ],
+  door_dir
+  [;
+    if (self in room02)
+      return n_to;
+    else
+      return s_to;
+  ],
+  door_to
+  [;
+    if (self in room02)
+      return room14;
+    else
+      return room02;
+  ],
+  before
+  [;
+    Pull:
+      if (self in room02)
+        <<Close self>>;
+      else
+        <<Open self>>;
+    Push:
+      if (self in room02)
+        <<Open self>>;
+      else
+        <<Close self>>;
+    Open:
+      if (debris in room14)
+        if (self in room02)
+          "You turn the quick-release handle and give the door a push, but it won't budge. There's something blocking it on the other side.";
+        else
+          "You can't get to the door because of the debris.";
+  ],
+  add_to_scope clamps seal handle latch,
+  found_in room02 room14,
+has door openable static;
+
+!----------------------------------------
+! Rubber seal around edge of door (attached to both doors)
+!----------------------------------------
+Object seal "rubber seal"
+with
+  name 'rubber' 'seal' 'edge' 'edges//p',
+  description "The rubber seal around the edge of the door forms a water-tight seal when the door is closed.",
+has scenery;
+
+!----------------------------------------
+! Dog handle (attached to both doors)
+!----------------------------------------
+Object handle "dog handle"
+with
+  name 'dog' 'handle',
+  description "The dog handle spins to engage the gear mechanism and lock the eight dog clamps into place when closing the door.",
+  before
+  [;
+    Turn:
+      if (location == room02 or room14)
+        <<Close aft_bulkhead>>;
+      if (location == room11 or room12)
+        <<Close fore_bulkhead>>;
+  ],
+has scenery;
+
+!----------------------------------------
+! Dog clamps (attached to both doors)
+!----------------------------------------
+Object clamps "dog clamps"
+with
+  name 'dog' 'clamp' 'clamps//p',
+  description "There are eight of them. They engage when the bulkhead door is closed.",
+has scenery;
+
+!----------------------------------------
+! Quick-release latch (attached to both doors)
+!----------------------------------------
+Object latch "quick-release latch"
+with
+  name 'quick-release' 'quick' 'release' 'latch',
+  description "The quick-release latch is turned to release all eight dog clamps when opening the door.",
+  before
+  [;
+    Turn:
+      if (location == room02 or room14)
+        <<Open aft_bulkhead>>;
+      if (location == room11 or room12)
+        <<Open fore_bulkhead>>;
+  ],
+has scenery;
+
+!----------------------------------------
+! Aft grille
+!----------------------------------------
+Object aft_grille "grille" room02
+with
+  name 'grille',
+  description
+  [;
+    if (self hasnt open && player notin chair)
+      "You can't see it clearly from the floor, but you can see that it conceals an opening to a service duct.";
+    if (self hasnt open)
+      "It has two hinges along one side and is screwed shut along the other side. You can see a service duct on the other side of the grille.";
+    "It's swinging freely by two hinges to reveal an opening in the service duct.";
+  ],
+  before
+  [;
+    if (action ~= ##Examine && player notin chair)
+      "You can't reach it.";
+    Close:
+      if (self hasnt open)
+       "It's already closed.";
+      "The only way to close it is to screw it shut again, but the screws fell through the grate on the floor.";
+    Cut:
+      if (second == nothing && pliers in player)
+      {
+        print "(with the pliers)^";
+        <<Cut self pliers>>;
+      }
+      if (second == nothing)
+        "You'll have to tell me what to cut it with.";
+      if (second ~= pliers)
+        "You can't cut the grille with ", (ThatOrThose)second, ".";
+      "The slats in the grille are too closely spaced to get the pliers in there. The pliers wouldn't be strong enough anyway. They're made for cutting wire.";
+    Enter:
+      <<Go FAKE_U_OBJ>>;
+    Open:
+      if (self has open)
+        "It's already open and swinging freely by the hinges.";
+      "It's screwed shut.";
+    Screw, Unscrew:
+      "Try the screws.";
+  ],
+  add_to_scope hinges,
+has openable lockable locked static;
+
+!----------------------------------------
+! Hinges
+!----------------------------------------
+Object hinges "hinges"
+with
+  name 'hinge' 'hinges//p',
+has scenery;
+
+!----------------------------------------
+! Screws
+!----------------------------------------
+Object screws "screws" room02
+with
+  name 'phillips' 'head' 'screw' 'screws//p',
+  description "They're Phillips head screws.",
+  before
+  [;
+    if (action ~= ##Examine && player notin chair)
+      "You can't reach them.";
+    Screw:
+      if (second == nothing && screwdriver in player)
+      {
+        print "(with the screwdriver)^";
+        <<Screw self screwdriver>>;
+      }
+      if (second == nothing)
+        "You'll have to tell me what to screw them with.";
+      if (second ~= screwdriver)
+        "You can't screw them with ", (ThatOrThose)second, ".";
+      "The screws are already screwed in. Maybe you should try unscrewing them.";
+    Spray:
+      if (second == nothing && wd40 in player)
+      {
+        print "(with the WD-40)^";
+        <<Spray self wd40>>;
+      }
+      if (second == nothing)
+        "You'll have to tell me what to ", (address)verb_word, " them with.";
+      if (second ~= wd40)
+        "You can't ", (address)verb_word, " them with ", (ThatOrThose)second, ".";
+      give self general;
+      "You spray the screws with the WD-40. If the claims on the can are true, you should now be able to unscrew them.";
+    Unscrew:
+      if (second == nothing && screwdriver in player)
+      {
+        print "(with the screwdriver)^";
+        <<Unscrew self screwdriver>>;
+      }
+      if (second == nothing)
+        "You'll have to tell me what to unscrew them with.";
+      if (second ~= screwdriver)
+        "You can't unscrew them with ", (ThatOrThose)second, ".";
+      if (self hasnt general)
+      {
+        give aft_grille general;
+        "The screws are too tight. They may have been rusted by the salt air from the seawater in the sub. You'll have to loosen them somehow.";
+      }
+      move screws to limbo;
+      give aft_grille ~locked open;
+      give aft_opening ~scenery static;
+      "You unscrew both screws and they fall to the floor and disappear below the grate. The grille swings open and hangs by the hinges.";
+  ],
+has pluralname scenery;
+
+!----------------------------------------
+! Aft opening in service duct
+!----------------------------------------
+Object aft_opening "opening in the service duct"
+with
+  article AN,
+  name 'opening',
+  description "It's an opening in the service duct.",
+  door_dir
+  [;
+    if (self in room02)
+      return u_to;
+    else
+      return d_to;
+  ],
+  door_to
+  [;
+    if (self in room08)
+    {
+      print (string)DROP_TO_FLOOR_BELOW;
+      PlayerTo(room02);
+      rtrue;
+    }
+    if (player notin chair)
+      print_ret (string)OPENING_OUT_OF_REACH;
+    if (aft_grille hasnt open)
+      "The grille is closed.";
+    return room08;
+  ],
+  found_in room02 room08,
+has door open scenery;
+
+!========================================
+! Room 3: Engineering Section
+!========================================
+Object room03 "Engineering Section"
+with
+  description "You're in the engineering section. This is the biggest part of the sub, because it houses all the engines, motors and generators for the power and propulsion systems. It also contains the batteries, cooling and ventilation systems. The way out of here is to fore.",
+  n_to room02,
+  before
+  [;
+    Hint:
+      if (screwdriver in nothing)
+        "What do police do when they find a dead body at a crime scene?";
+      if (aft_grille hasnt open)
+        "The things you found here will be useful elsewhere.";
+      print_ret (string)NOTHING_ELSE_TO_DO;
+  ],
+has light;
+
+!----------------------------------------
+! Engineering section
+!----------------------------------------
+Object "engineering section" room03
+with
+  article THE,
+  name ,
+  parse_name
+  [ i;
+    while (NextWord() == 'engineering' or 'section' or 'engine' or 'engines//p' or 'motor' or 'motors//p' or 'generator' or 'generators//p' or 'power' or 'propulsion' or 'battery' or 'batteries//p' or 'cooling' or 'ventilation' or 'system' or 'systems//p')
+      i++;
+    return i;
+  ],
+  description "This is a highly complex and technical area - way above your pay grade. You think it best to leave everything alone, as you don't want to cause any damage that will prevent you getting back to the surface.",
+has scenery;
+
+!----------------------------------------
+! Nelson's body
+!----------------------------------------
+Object nelson "Nelson's body" room03
+class Body
+with
+  parse_name
+  [ i;
+    while (NextWord() == 'engineer' or 'engineer^s' or 'mechanic' or 'mechanic^s' or 'body' or 'petty' or 'officer' or 'first' or 'class' or 'nelson' or 'nelson^s' or 'pickles' or 'pickles^')
+      i++;
+    return i;
+  ],
+  description "It's Petty Officer First Class Nelson, but everyone calls him Pickles. He's the engineer-come-mechanic and probably the hardest working person aboard the sub. Unfortunately, his working days are over, as he's crumpled in a lifeless heap on the floor.",
+  before
+  [;
+    Search:
+      print "You search Nelson's pockets ";
+      if (screwdriver in nothing)
+      {
+        move screwdriver to location;
+        "and find a screwdriver.";
+      }
+      "again, but you don't find anything else of interest.";
+  ],
+has animate proper;
+
+!----------------------------------------
+! Screwdriver
+!----------------------------------------
+Object screwdriver "screwdriver"
+with
+  name 'medium-sized' 'phillips' 'head' 'screwdriver',
+  description "It's a medium-sized Phillips head screwdriver.",
+has;
+
+!----------------------------------------
+! Can of WD-40
+!----------------------------------------
+Object wd40 "can of WD-40" room03
+with
+  parse_name
+  [ i;
+    while (NextWord() == 'can' or 'of' or 'wd-40' or 'wd40' or 'spray' or 'nozzle' or 'lubricant')
+      i++;
+    return i;
+  ],
+  description "It's a small blue and yellow can with a spray nozzle. The instructions on the back talk about protecting metal from rust and corrosion, penetrating stuck parts, displacing moisture and lubricating almost anything.",
+has;
+
+!========================================
+! Room 4: Skipper's Cabin
+!========================================
+Object room04 "Skipper's Cabin"
+with
+  description "This is the skipper's cabin. It's his private sanctuary where he rests, works and plans missions. The only time you've been here, prior to today, was when the skipper first welcomed you aboard. The exit is to port.",
+  w_to room02,
+  before
+  [;
+    Hint:
+      if (key in nothing)
+        "What do police do when they find a dead body at a crime scene?";
+      if (desk has locked)
+        "Try unlocking the skipper's desk.";
+      if (desk hasnt open)
+        "Try opening the skipper's desk.";
+      if (pistol hasnt moved)
+        "The pistol could be useful, but don't go shooting anything and everything. You are aboard a submarine, don't forget.";
+      if (instructions hasnt moved)
+        "The mission instructions aren't important.";
+      "There's nothing else to find here.";
+    Sleep:
+      print_ret (string)HAD_A_SLEEP;
+  ],
+has light;
+
+!----------------------------------------
+! Skipper's cabin
+!----------------------------------------
+Object "skipper's cabin" room04
+
+with
+  article THE,
+  name 'skipper^s' 'marshall^s' 'cabin' 'quarters//p',
+  description "Apart from the furniture, it's quite bare.",
+has scenery;
+
+!----------------------------------------
+! Marshall's body
+!----------------------------------------
+Object marshall "Marshall's body" room04
+class Body
+with
+  parse_name
+  [ i;
+    while (NextWord() == 'skipper' or 'skipper^s' or 'captain' or 'captain^s' or 'body' or 'lieutenant' or 'commander' or 'marshall' or 'marshall^s')
+      i++;
+    return i;
+  ],
+  description "It's Lieutenant Commander Marshall. He's the skipper of the submarine. Unfortunately, he won't be doing any more commanding, as his pale complexion and lack of pulse indicate that he's clearly dead. It looks like he succumbed to the gas.",
+  before
+  [;
+    Search:
+      print "You search the skipper's pockets ";
+      if (key in nothing)
+      {
+        move key to location;
+        "and find a silver key.";
+      }
+      "again, but you don't find anything else of interest.";
+  ],
+has animate proper;
+
+!----------------------------------------
+! Silver key
+!----------------------------------------
+Object key "silver key"
+with
+  name 'silver' 'key',
+  description
+  [;
+    print "It's a small silver key ";
+    if (desk hasnt general)
+      "with no distinguishing marks. You have no idea what it unlocks.";
+    else
+      "that unlocks the skipper's rolltop writing desk.";
+  ],
+has;
+
+!----------------------------------------
+! Bunk
+!----------------------------------------
+Object bunk "bunk" room04
+with
+  name 'plain' 'bunk',
+  description
+  [;
+    print "It's a plain bunk, not unlike your own bunk in the crew's quarters. ";
+    <<Search self>>;
+  ],
+  before
+  [;
+    Enter:
+      "This is no time to be lazing around on the skipper's bunk.";
+  ],
+has static supporter;
+
+!----------------------------------------
+! Rolltop writing desk
+!----------------------------------------
+Object desk "rolltop writing desk" room04
+with
+  name 'rolltop' 'mahogany' 'writing' 'desk',
+  description
+  [;
+    print "It's a beautiful old mahogany desk with a rolltop. Luxuries like this are one of the few perks of being the commanding officer aboard a submarine. ";
+    <<Search self>>;
+  ],
+  after
+  [;
+    Close:
+      give self container ~supporter;
+    Open:
+      PrintMsg(MSG_OPEN_DEFAULT);
+      give self ~container supporter;
+      rtrue;
+    Unlock:
+      give self general;
+  ],
+  with_key key,
+has lockable locked openable container static;
+
+!----------------------------------------
+! Pistol
+!----------------------------------------
+Object pistol "pistol" desk
+with
+  name 'colt' 'm1911' 'navy' 'pistol',
+  description
+  [;
+    print "It's a Colt M1911 navy pistol, .45 calibre. ";
+    if (self hasnt general)
+      "It's only got one bullet.";
+    else
+      "It's empty.";
+  ],
+has;
+
+!----------------------------------------
+! Mission instructions
+!----------------------------------------
+Object instructions "mission instructions" desk
+with
+  parse_name
+  [ i;
+    while (NextWord() == 'top' or 'secret' or 'mission' or 'instruction' or 'instructions//p' or 'folder')
+      i++;
+    return i;
+  ],
+  description "The mission instructions are inside a sealed folder that has 'TOP SECRET' stamped across the front in red ink.",
+  before
+  [;
+    Open, Read:
+      "Sorry, they're top secret. You don't have the necessary security clearance to read them.";
+  ],
+has pluralname;
+
+!----------------------------------------
+! Chair
+!----------------------------------------
+Object chair "chair" room04
+with
+  name 'mahogany' 'chair',
+  description "It's a solid mahogany chair that's similar in style to the skipper's rolltop writing desk.",
+  react_before
+  [;
+    Drop:
+      if (player in self && noun in player && noun hasnt worn)
+      {
+        move noun to location;
+        print_ret (The)noun, " falls to the floor.";
+      }
+    Take:
+      if (player in self && noun in location)
+        "You can't reach ", (the)noun, " while you're standing on the chair.";
+  ],
+  before
+  [;
+    Climb:
+      if (self in player)
+        "You'll have to drop it first.";
+      if (player in self)
+        <<Exit self>>;
+      <<Enter self>>;
+    Enter:
+      if (self in player)
+        "You'll have to drop it first.";
+      if (verb_word == 'lie')
+        "It's not big enough to lie on.";
+      if (verb_word == 'sit')
+        "You sit down briefly, decide that you're wasting time and stand up again.";
+    Go:
+      if (selected_direction == u_to)
+      {
+        if (location == room02)
+        {
+          if (aft_grille hasnt open)
+          {
+            print "You'll have to open the grille first.^";
+            return 2;
+          }
+          else
+          {
+            print (string)CLAMBER_THROUGH_OPENING;
+            PlayerTo(room08);
+            return 2;
+          }
+        }
+        if (location == room11)
+        {
+          print (string)CLAMBER_THROUGH_OPENING;
+          PlayerTo(room10);
+          return 2;
+        }
+        print "You can't climb any higher.^";
+        return 2;
+      }
+      if (selected_direction == d_to)
+      {
+        <Exit self>;
+        return 2;
+      }
+      print "You'll have to get off the chair first.^";
+      return 2;
+  ],
+  after
+  [;
+    Enter:
+      "You stand on the chair.";
+    Exit:
+      "You get off the chair.";
+  ],
+has enterable supporter;
+
+!========================================
+! Room 5: Crew's Quarters
+!========================================
+Object room05 "Crew's Quarters"
+with
+  description "This is where the crew members sleep, relax and store their personal items. It contains half a dozen cramped compartments, each equipped with a bunk and a storage locker. There are exits to fore, aft and starboard.",
+  n_to room07,
+  e_to room02,
+  s_to room06,
+  before
+  [;
+    Hint:
+      if (pliers in nothing)
+        "Have you tried examining the bunks?";
+      "There's nothing else to find here.";
+    Sleep:
+      print_ret (string)HAD_A_SLEEP;
+  ],
+has light;
+
+!----------------------------------------
+! Crew's quarters
+!----------------------------------------
+Object "crew's quarters" room05
+with
+  article THE,
+  name 'crew^s' 'quarters//p' 'compartment' 'compartments//p',
+  description "It's very cramped and privacy is limited. If someone farts, everyone knows about it.",
+has scenery;
+
+!----------------------------------------
+! Bunks
+!----------------------------------------
+Object bunks "bunks" room05
+with
+  name 'bed' 'beds//p' 'bunk' 'bunks//p',
+  description
+  [;
+    print "These are the crew's bunks. They're all neatly made in accordance with naval regulations. The walls above each bunk are personalised with pictures, mementos and other small items that remind the owner of home or loved ones.";
+      if (pliers in nothing)
+      {
+        move pliers to self;
+        print " You find a pair of pliers on Nelson's bunk. That makes sense, as he's the engineer.";
+      }
+      "";
+  ],
+  before
+  [;
+    Enter:
+      "This is no time to be lazing around on any of the crew's bunks, even your own.";
+    Search:
+      print "You search the crew's bunks";
+      if (pliers in nothing)
+      {
+        move pliers to self;
+        " and find a pair of pliers on Nelson's bunk. That makes sense, as he's the engineer.";
+      }
+      ", but don't find anything of interest.";
+  ],
+has pluralname static supporter;
+
+!----------------------------------------
+! Personal items
+!----------------------------------------
+Object "pictures and mementos" room05
+with
+  parse_name
+  [ i;
+    while (NextWord() == 'wall' or 'walls//p' or 'picture' or 'pictures//p' or 'memento' or 'mementos//p' or 'small' or 'item' or 'items//p')
+      i++;
+    return i;
+  ],
+  description "The items on the walls are all quite personal and of no use to your current predicament.",
+has pluralname scenery;
+
+!----------------------------------------
+! Storage lockers
+!----------------------------------------
+Object lockers "storage lockers" room05
+with
+  name 'storage' 'locker' 'lockers//p',
+  description "There's one storage locker at the foot of each bunk. There's nothing of importance in any of them.",
+  before
+  [;
+    Open, Unlock:
+      "The storage lockers only contain clothing and personal items. Your sense of decorum tells you to leave them alone.";
+  ],
+has pluralname static;
+
+!----------------------------------------
+! Pair of pliers
+!----------------------------------------
+Object pliers "pair of pliers"
+with
+  name 'pair' 'of' 'side-cutting' 'pliers',
+  description "It's a pair of side-cutting pliers with an insulated handle. They're used to grip, splice or cut wires, and strip insulation.",
+has;
+
+!========================================
+! Room 6: Showers
+!========================================
+Object room06 "Showers"
+with
+  description "The showers are quite confined. There are two stalls, each equipped with a hand-held showerhead, a drain in the floor and a curtain to provide privacy. The exit from the showers is to fore.",
+  n_to room05,
+  before
+  [;
+    Hint:
+      if (soap in nothing)
+        "Have you tried examining the showers?";
+      "There's nothing else to find here.";
+  ],
+has light;
+
+!----------------------------------------
+! Showers
+!----------------------------------------
+Object "showers" room06
+with
+  article THE,
+  name 'shower' 'showers//p' 'stall' 'stalls//p',
+  description
+  [;
+    print "There's a shallow pool of water in the showers, as the recirculating system seems to have trouble draining it all away.";
+    if (soap in nothing)
+      print " There seems to be something under the water.";
+    "";
+  ],
+  before
+  [;
+    Enter:
+      "This is no time to be taking a shower.";
+    Take:
+      if (verb_word == 'take')
+        "This is no time to be taking a shower.";
+  ],
+has scenery;
+
+!----------------------------------------
+! Hand-held showerhead
+!----------------------------------------
+Object "hand-held showerhead" room06
+with
+  name ,
+  parse_name
+  [ i;
+    while (NextWord() == 'hand-held' or 'hand' or 'held' or 'showerhead' or 'head')
+      i++;
+    return i;
+  ],
+  description "It's designed for an octopus. You hold the soap in one hand, a face washer in your second hand, balance yourself with your third hand and hold the showerhead in your fourth hand.",
+has scenery;
+
+!----------------------------------------
+! Curtain
+!----------------------------------------
+Object "curtain" room06
+with
+  article TWO,
+  name 'curtain' 'curtains//p' 'floral' 'florals//p',
+  description "Everything aboard this sub is gunmetal grey, except the shower curtains. Some bozo decided that these should be colourful florals. Sheesh.",
+has pluralname scenery;
+
+!----------------------------------------
+! Drain
+!----------------------------------------
+Object "drain" room06
+with
+  name 'drain' 'floor',
+  description "The drain in the floor doesn't work very well. The navy can design a multi-million dollar attack sub, but they can't design a simple drain that works properly.",
+has scenery;
+
+!----------------------------------------
+! Pool of water
+!----------------------------------------
+Object water "pool of water" room06
+with
+  name 'pool' 'of' 'water',
+  description
+  [;
+    print "It's just a shallow pool of water from the showers. It sometimes has trouble draining away.";
+    if (soap in nothing)
+    {
+      move soap to location;
+      print " Ooh, you find some soap under the water.";
+    }
+    "";
+  ],
+has scenery;
+
+!----------------------------------------
+! Bar of soap
+!----------------------------------------
+Object soap "bar of soap"
+with
+  name 'bar' 'of' 'soap',
+  description "It's standard navy issue. Soap, yellow, harsh on skin.",
+has;
+
+!========================================
+! Room 7: Galley
+!========================================
+Object room07 "Galley"
+with
+  description "The galley includes a small kitchen and dining area. Tubs, the cook, does most of the cooking, but you can prepare your own meals when he's working in the torpedo bay. The exit is aft.",
+  s_to room05,
+  before
+  [;
+    Hint:
+      if (peas in nothing)
+        "Have you tried examining all the kitchen appliances?";
+      "There's nothing else to find here.";
+  ],
+has light;
+
+!----------------------------------------
+! Galley
+!----------------------------------------
+Object "galley" room07
+with
+  article THE,
+  name 'galley',
+  description "The galley includes a kitchen and dining area.",
+has scenery;
+
+!----------------------------------------
+! Kitchen
+!----------------------------------------
+Object "kitchen" room07
+with
+  article THE,
+  name 'kitchen',
+  description "The kitchen includes a stove, oven, microwave, refrigerator, freezer, sink and some counter space for food preparation. There are cabinets under the counter.",
+has scenery;
+
+!----------------------------------------
+! Stove
+!----------------------------------------
+Object stove "stove" room07
+with
+  parse_name
+  [ i;
+    while (NextWord() == 'stove' or 'electric' or 'element' or 'elements//p' or 'cooktop')
+      i++;
+    return i;
+  ],
+  description
+  [;
+    print "It's a large stove with six electric elements on the cooktop. Gas stoves are a no-no aboard submarines. ";
+    <<Search self>>;
+  ],
+has static supporter;
+
+!----------------------------------------
+! Oven
+!----------------------------------------
+Object oven "oven" room07
+with
+  article AN,
+  name 'oven',
+  description
+  [;
+    print "It's an electric oven located beneath the stove. ";
+    <<Search self>>;
+  ],
+  invent
+  [;
+    if (inventory_stage == 2 && (self hasnt open || children(self) == 0))
+      rtrue;
+  ],
+has container openable static;
+
+!----------------------------------------
+! Microwave
+!----------------------------------------
+Object microwave "microwave" room07
+with
+  name 'microwave',
+  description
+  [;
+    print "It's a microwave, just like the ones you find in most houses nowadays. It's mainly used for reheating meals. ";
+    <<Search self>>;
+  ],
+  invent
+  [;
+    if (inventory_stage == 2 && (self hasnt open || children(self) == 0))
+      rtrue;
+  ],
+has container openable static;
+
+!----------------------------------------
+! Refrigerator
+!----------------------------------------
+Object refrigerator "refrigerator" room07
+with
+  name 'refrigerator' 'fridge',
+  description
+  [;
+    print "It's a large refrigerator that's used to keep food and drink cold. ";
+    <<Search self>>;
+  ],
+  invent
+  [;
+    if (inventory_stage == 2 && (self hasnt open || children(self) == 0))
+      rtrue;
+  ],
+has container openable static;
+
+!----------------------------------------
+! Fresh food
+!----------------------------------------
+Object fresh_food "fresh food" refrigerator
+with
+  article SOME,
+  parse_name
+  [ i;
+    while (NextWord() == 'fresh' or 'food' or 'egg' or 'eggs//p' or 'fruit//p' or 'vegetable' or 'vegetables//p' or 'drink' or 'milk' or 'juice')
+      i++;
+    return i;
+  ],
+  description "It's mainly things like eggs, fruit and vegetables. There's also some milk and fruit juice.",
+  before
+  [;
+    Eat, Take:
+      print_ret (string)THINKING_ABOUT_STOMACH;
+  ],
+has static;
+
+!----------------------------------------
+! Freezer
+!----------------------------------------
+Object freezer "freezer" room07
+with
+  name 'freezer',
+  description
+  [;
+    print "It's a very large freezer that's used to store food for extended periods when the sub is out at sea. ";
+    <<Search self>>;
+  ],
+  invent
+  [;
+    if (inventory_stage == 2 && (self hasnt open || children(self) == 0))
+      rtrue;
+  ],
+has container openable static;
+
+!----------------------------------------
+! Frozen food
+!----------------------------------------
+Object frozen_food "frozen food" freezer
+with
+  article SOME,
+  parse_name
+  [ i;
+    while (NextWord() == 'frozen' or 'food' or 'meat' or 'vegetable' or 'vegetables//p' or 'pre-prepared' or 'meal' or 'meals//p')
+      i++;
+    return i;
+  ],
+  description
+  [;
+    print "It's mainly frozen meat and vegetables. There are also some pre-prepared frozen meals.";
+    if (peas in nothing)
+    {
+      move peas to freezer;
+      print " There's a packet of frozen peas on top.";
+    }
+    "";
+  ],
+  before
+  [;
+    Eat, Take:
+      print_ret (string)THINKING_ABOUT_STOMACH;
+    Touch:
+      "It's cold.";
+  ],
+has static;
+
+!----------------------------------------
+! Frozen peas
+!----------------------------------------
+Object peas "packet of frozen peas"
+with
+  name 'packet' 'of' 'frozen' 'peas//p',
+  description "It's a packet of frozen peas. You hate peas, as your mother used to force you to eat peas when you were a kid. However, you do keep a packet of frozen peas in your freezer at home, because they make a good cold pack.",
+  before
+  [;
+    Eat:
+      "No thanks. You hate peas, cooked, frozen or otherwise.";
+    Touch:
+      "The packet is cold.";
+  ],
+has;
+
+!----------------------------------------
+! Sink
+!----------------------------------------
+Object sink "sink" room07
+with
+  name 'sink',
+  description
+  [;
+    print "It's a large, deep stainless steel sink. ";
+    <<Search self>>;
+  ],
+  invent
+  [;
+    if (inventory_stage == 2 && children(self) == 0)
+      rtrue;
+  ],
+has container open static;
+
+!----------------------------------------
+! Counter
+!----------------------------------------
+Object counter "counter" room07
+with
+  name 'counter',
+  description
+  [;
+    print "It's the bench that's used for food preparation. Tubs keeps it spotlessly clean, as you can't afford the crew to get sick from nasty bacteria when you're on board a submarine. ";
+    <<Search self>>;
+  ],
+has supporter static;
+
+!----------------------------------------
+! Cabinets
+!----------------------------------------
+Object cabinets "cabinets" room07
+with
+  name 'cabinet' 'cabinets//p',
+  description
+  [;
+    print "The cabinets under the counter are used for food storage and cooking utensils. ";
+    <<Search self>>;
+  ],
+  invent
+  [;
+    if (inventory_stage == 2 && (self hasnt open || children(self) == 0))
+      rtrue;
+  ],
+has container openable pluralname static;
+
+!----------------------------------------
+! Dry food
+!----------------------------------------
+Object dry_food "dry food" cabinets
+with
+  article SOME,
+  parse_name
+  [ i;
+    while (NextWord() == 'dry' or 'food' or 'flour' or 'cereal' or 'rice' or 'pasta' or 'noodle' or 'noodles//p')
+      i++;
+    return i;
+  ],
+  description "It's mainly dry food like flour, cereal, rice, pasta and noodles.",
+  before
+  [;
+    Eat, Take:
+      print_ret (string)THINKING_ABOUT_STOMACH;
+  ],
+has static;
+
+!----------------------------------------
+! Dining area
+!----------------------------------------
+Object "dining area" room07
+with
+  article THE,
+  name 'dining' 'area',
+  description "The dining area has a table and seats for sitting down when eating.",
+has scenery;
+
+!----------------------------------------
+! Table
+!----------------------------------------
+Object table "table" room07
+with
+  name 'table',
+  description
+  [;
+    print "The table is made of stainless steel and bolted to the floor. ";
+    <<Search self>>;
+  ],
+has static supporter;
+
+!----------------------------------------
+! Seats
+!----------------------------------------
+Object seats "seats" room07
+with
+  name 'seat' 'seats//p' 'frame' 'frames//p',
+  description
+  [;
+    print "The seats are made of plastic mounted to stainless steel frames and bolted to the floor. ";
+    <<Search self>>;
+  ],
+  before
+  [;
+    Enter:
+      "You don't have time to sit around.";
+    Take:
+      "They're bolted to the floor.";
+  ],
+has pluralname supporter static;
+
+!----------------------------------------
+! Barker's body
+!----------------------------------------
+Object barker "Barker's body" room07
+class Body
+with
+  parse_name
+  [ i;
+    while (NextWord() == 'cook' or 'cook^s' or 'body' or 'petty' or 'officer' or 'third' or 'class' or 'barker' or 'barker^s' or 'tubs' or 'tubs^')
+      i++;
+    return i;
+  ],
+  description "It's Petty Officer Third Class Barker, known to the rest of the crew as Tubs. He's the cook aboard the USS Ibis, but he's also the torpedo man. He's currently lying lifeless on the galley floor, apparently a victim of the poisonous gas.",
+has animate proper;
+
+!========================================
+! Room 8: Aft Service Duct
+!========================================
+Object room08 "Aft Service Duct"
+with
+  description "You're in the aft service duct. It's a small enclosed space that's barely big enough to crawl in. It's lined with pipes and cables for the various mechanical and electrical systems within the submarine. The duct continues to fore or you can climb down through the opening to leave the claustrophobic confines of the duct.",
+  n_to room09,
+  d_to aft_opening,
+  before
+  [;
+    Hint:
+      "There's nothing to do here, other than press on.";
+  ],
+has light;
+
+!----------------------------------------
+! Service duct (floating object)
+!----------------------------------------
+Object "service duct"
+with
+  article THE,
+  name 'service' 'duct',
+  description
+  [;
+    if (self in room02 or room11)
+      "You can't see it clearly from down here. You can only see that it's on the other side of the opening.";
+    else
+      "It's probably about 3 feet wide and 3 feet high, barely big enough to crawl through.";
+  ],
+  found_in
+  [;
+    if (location == room02 or room08 or room09 or room10 or room11)
+      rtrue;
+  ],
+has scenery;
+
+!----------------------------------------
+! Pipes and cables
+!----------------------------------------
+Object "pipes and cables"
+with
+  name 'pipe' 'pipes//p' 'cable' 'cables//p',
+  found_in room08 room09 room10,
+has scenery;
+
+!========================================
+! Room 9: Central Service Duct
+!========================================
+Object room09 "Central Service Duct"
+with
+  description "You're in the cramped confines of the service duct. This part of the duct is quite dark, but you can still see the pipes and cables from the light to fore and aft.",
+  n_to
+  [;
+    if (fuse notin fuse_box)
+      return room10;
+    deadflag = 1;
+    "Bzzzz. You've hit a live wire. Your back arches in a sudden spasm of pain and your body convulses uncontrollably. You've been electrocuted.";
+  ],
+  s_to room08,
+  before
+  [;
+    Hint:
+      if (fuse in fuse_box)
+        "Those live wires look dangerous. You'd better cut the source of power before going any further to fore.";
+      "It's safe to go fore now.";
+  ],
+has light;
+
+!----------------------------------------
+! Wires hanging from ceiling
+!----------------------------------------
+Object wires "wires hanging from the ceiling" room09
+with
+  name 'wires' 'hanging' 'from' 'ceiling',
+  description
+  [;
+    print "The wires block the fore end of the service duct as they sway gently in the breeze from the air conditioning as air passes through the duct. ";
+    if (fuse in fuse_box)
+      "Sparks are generated from the exposed ends of the wires. It looks dangerous.";
+    else
+      "The wires look safe now that you've removed the fuse from the fuse box.";
+  ],
+  before
+  [;
+    Pull, Push, Take, Touch:
+      if (fuse in fuse_box)
+      {
+        deadflag = 1;
+        "When you touch the live wire, your back arches in a sudden spasm of pain and your body convulses uncontrollably. You've been electrocuted.";
+      }
+  ],
+has pluralname static;
+
+!----------------------------------------
+! Fuse box
+!----------------------------------------
+Object fuse_box "fuse box" room09
+with
+  name 'fuse' 'box',
+  parse_name
+  [ nw;
+    nw = NextWord();
+    if (nw == 'fuse' && NextWord() == 'box')
+      return 2;
+    if (nw == 'box')
+      return 1;
+    if (nw == 'fuse' && ~~(TestScope(fuse)))
+      return 1;
+    return 0;
+  ],
+  description
+  [;
+    print "It's a small metal box screwed to the wall of the service duct. ";
+    <<Search self>>;
+  ],
+  before
+  [;
+    Receive:
+      if (noun ~= fuse)
+        "You can only insert fuses in the fuse box.";
+    Screw, Unscrew:
+      "That's not necessary. You can just open it or close it.";
+    Take:
+      "It's screwed to the wall of the service duct.";
+  ],
+  after
+  [;
+    LetGo:
+      if (noun == fuse)
+        "When you remove the fuse, the wires stop sparking.";
+    Receive:
+      if (noun == fuse)
+        "When you insert the fuse, the wires start sparking.";
+  ],
+has container openable static;
+
+!----------------------------------------
+! Fuse
+!----------------------------------------
+Object fuse "fuse" fuse_box
+with
+  name 'ceramic' 'fuse' 'copper' 'wire',
+  description "It's a ceramic fuse with a copper wire.",
+has;
+
+!========================================
+! Room 10: Fore Service Duct
+!========================================
+Object room10 "Fore Service Duct"
+with
+  description
+  [;
+    print "You're at the fore end of the service duct, along with all those pipes and cables. You can't go any further unless you turn around and go back towards the aft end of the duct. ";
+    if (fore_grille in self)
+      "There's also a grille in the floor of the duct that looks promising.";
+    else
+      "Alternatively, there's an opening in the floor of the duct that leads down.";
+  ],
+  s_to room09,
+  d_to fore_opening,
+  before
+  [;
+    Hint:
+      if (fore_grille in self)
+        "You'll need to open that grille. This is one time when violence is the answer.";
+      "The grille's open. It's time to see what's below the opening.";
+  ],
+has light;
+
+!----------------------------------------
+! Fore grille
+!----------------------------------------
+Object fore_grille "grille" room10
+with
+  name 'grille',
+  description
+  [;
+    if (self in room10)
+      "The grille in the floor of the service duct is just like the one at the aft end of the duct. However, because it's screwed shut from the other side, you won't be able to unscrew it.";
+    else
+      "The grille is hanging down by the hinges.";
+    ],
+  before
+  [;
+    if (self in room11 && action ~= ##Examine && player notin chair)
+      "You can't reach it.";
+    Attack:
+      if (self in room10)
+        "You pound the grille with your fist, but you only hurt yourself. You'll need to exert more force somehow.";
+    Cut:
+      if (second == nothing && pliers in player)
+      {
+        print "(with the pliers)^";
+        <<Cut self pliers>>;
+      }
+      if (second == nothing)
+        "You'll have to tell me what to cut it with.";
+      if (second ~= pliers)
+        "You can't cut the grille with ", (ThatOrThose)second, ".";
+      "The slats in the grille are too closely spaced to get the pliers in there. The pliers wouldn't be strong enough anyway. They're made for cutting wire.";
+    Kick:
+      if (self in room10)
+      {
+        move self to room11;
+        give fore_opening ~scenery static;
+        "You spin around and lie on your back so that your feet are located over the grille, then you give it one almighty kick with your heels. The screws give way and the grille swings open.";
+      }
+    Open:
+      if (self in room10)
+        "If it's anything like the aft grille, the screws are on the other side, so you can't open it from here...unless you exert some force.";
+  ],
+  add_to_scope hinges,
+has static;
+
+!----------------------------------------
+! Fore opening in service duct
+!----------------------------------------
+Object fore_opening "opening in the service duct"
+with
+  article AN,
+  name 'opening',
+  description "It's an opening in the service duct.",
+  door_dir
+  [;
+    if (self in room10)
+      return d_to;
+    else
+      return u_to;
+  ],
+  door_to
+  [;
+    if (self in room10)
+    {
+      if (fore_grille in location)
+        "The grille blocks the way.";
+      print (string)DROP_TO_FLOOR_BELOW;
+      PlayerTo(room11, 0);
+      rtrue;
+    }
+    else
+    {
+      if (player notin chair)
+        print_ret (string)OPENING_OUT_OF_REACH;
+      else
+        return room10;
+    }
+  ],
+  found_in room10 room11,
+has door open scenery;
+
+!========================================
+! Room 11: Control Room
+!========================================
+Object room11 "Control Room"
+with
+  description "This is the nerve centre of the sub. It's a dimly-lit, cramped space, filled with banks of screens, dials, switches and gauges. The screens show information on sonar readings, navigation charts, system status, threat assessments and so on. There's a bulkhead at the fore end of the control room with other exits to aft and starboard. There's also an opening in the service duct above you.",
+  n_to fore_bulkhead,
+  s_to room14,
+  e_to room13,
+  u_to fore_opening,
+  before
+  [;
+    Hint:
+      if (room13 hasnt visited)
+        "Make sure you go starboard.";
+      if (green_wire hasnt general)
+        "There are lots of controls here, but it's probably best not to play with anything until you're confident that it's safe to do so.";
+      "You've disarmed the bomb. It's time to surface.";
+  ],
+has light;
+
+!----------------------------------------
+! Control room
+!----------------------------------------
+Object "control room" room11
+with
+  article THE,
+  parse_name
+  [ i;
+    while (NextWord() == 'control' or 'room' or 'nerve' or 'centre' or 'center')
+      i++;
+    return i;
+  ],
+  description "It's full of screens and other equipment necessary for navigation, communications, attack and defence. Because the Puny class submarine is only small, the entire crew would be in here during an operation, except for Pickles in engineering and Tubs in the torpedo bay.",
+has scenery;
+
+!----------------------------------------
+! Control console
+!----------------------------------------
+Object "control console" room11
+with
+  parse_name
+  [ i;
+    while (NextWord() == 'controls//p' or 'control' or 'console' or 'dial' or 'dials//p' or 'switch' or 'switches//p' or 'equipment' or 'bank' or 'banks//p')
+      i++;
+    return i;
+  ],
+  description "There is an amazing array of controls in here. You recognise the sonar screen, the depth gauge and two buttons marked 'DIVE' and 'SURFACE'. Everything else is way above your pay grade and you don't understand what any of it does.",
+has scenery;
+
+!----------------------------------------
+! Navigation charts etc.
+!----------------------------------------
+Object "navigation charts" room11
+with
+  parse_name
+  [ i;
+    while (NextWord() == 'navigation' or 'chart' or 'charts//p' or 'system' or 'status' or 'threat' or 'assessment' or 'assessments//p')
+      i++;
+    return i;
+  ],
+  description "You haven't been in the navy long enough to learn about this stuff.",
+has scenery;
+
+!----------------------------------------
+! Sonar screen
+!----------------------------------------
+Object "sonar screen" room11
+with
+  parse_name
+  [ i;
+    while (NextWord() == 'sonar' or 'screen' or 'screens//p' or 'blip' or 'reading' or 'readings//p')
+      i++;
+    return i;
+  ],
+  description "Everybody knows what a sonar screen does, even you. There's a blip on the screen, but it's a long way off and travelling very slowly.",
+has scenery;
+
+!----------------------------------------
+! Depth gauge
+!----------------------------------------
+Object "depth gauge" room11
+with
+  name 'depth' 'gauge' 'gauges//p',
+  description "This is one gauge that you understand, because you are a trained diver. You can see that the depth gauge is currently at 132 feet. That's about 40 metres. For a diver, that would be regarded as a 'deep dive'. The pressure at that depth is about 5 times the atmospheric pressure at sea level.",
+has scenery;
+
+!----------------------------------------
+! Buttons
+!----------------------------------------
+Object "buttons" room11
+with
+  name 'buttons//p',
+  description "There are lots of buttons, but the two you recognise, because of the labels, are the 'DIVE' button and the 'SURFACE' button.",
+has scenery;
+
+!----------------------------------------
+! DIVE button
+!----------------------------------------
+Object dive_button "DIVE button" room11
+with
+  name 'dive' 'button',
+  description "It says, 'DIVE'. You notice a bloody fingerprint on the button.",
+  before
+  [;
+    Push:
+      "Nothing obvious happens. Either the engines are off or the sub can't dive any deeper.";
+  ],
+has static;
+
+!----------------------------------------
+! SURFACE button
+!----------------------------------------
+Object button "SURFACE button" room11
+with
+  name 'surface' 'button',
+  description "It says, 'SURFACE'.",
+  before
+  [;
+    Push:
+      print "The engines start up and the sub slowly rises. ";
+      if (green_wire hasnt general)
+      {
+        deadflag = 1;
+        "When the depth gauge reaches 33 feet (10 metres), there's an almighty explosion at the aft of the sub. Water rushes in and the submarine is soon flooded with seawater and debris.";
+      }
+      else
+      {
+        deadflag = 2;
+        "Before long, the sub breaches the surface. You have managed to save a top secret, multi-million dollar submarine from being blown up by a saboteur. Congratulations!^^The recovery ship rescues you a short time later and a temporary crew takes the USS Ibis back to shore. Command Master Chief Petty Officer Holland is taken to hospital and makes a full recovery from his encounter with the saboteur. He recommends you for a medal for your bravery, but you don't feel like you deserve it. You were just doing your job.^^EPILOGUE:^^An investigation is undertaken to work out how the saboteur breached security and snuck on board the sub. Forensics find that the bloody fingerprint on the DIVE button was not that of Holland, but of Webb, whereas Holland's fingerprints were found on the internals of the bomb, the empty gas canister and the debris that was blocking the aft bulkhead door.^^Further investigation reveals that there were no gas masks aboard the USS Ibis due to an oversight, so how did Holland get a gas mask? It is soon revealed that the quick-thinking Webb was in the store room at the time of the gas attack and grabbed an aqualung and shotgun. He confronted Holland and came off second best, but not before pressing the submarine's DIVE button and returning to the communications room to call for help.^^Webb is exonerated and awarded a posthumous medal for bravery. Holland is court-martialled and found guilty of treason, attempted sabotage and murder.^^A small memorial is erected to honour your shipmates (Spider, Spuds, Pickles, Tubs and the skipper), who died in the attempted sabotage. May they rest in peace.";
+      }
+  ],
+has static;
+
+!----------------------------------------
+! Fore bulkhead (floating object)
+!----------------------------------------
+Object fore_bulkhead "bulkhead door"
+with
+  parse_name
+  [ i;
+    while (NextWord() == 'bulkhead' or 'door' or 'heavy-steel' or 'heavy' or 'steel' or 'rectangular' or 'rounded' or 'corner' or 'corners//p')
+      i++;
+    return i;
+  ],
+  description
+  [;
+    print "It's a heavy-steel, rectangular door with rounded corners and a rubber seal around the edges. It has a dog handle in the middle and a quick-release latch at the side. It's currently ";
+    if (self has open)
+      "open.";
+    else
+      "closed.";
+  ],
+  door_dir
+  [;
+    if (self in room11)
+      return n_to;
+    else
+      return s_to;
+  ],
+  door_to
+  [;
+    if (self in room11)
+      return room12;
+    else
+      return room11;
+  ],
+  before
+  [;
+    Pull:
+      if (self in room11)
+        <<Open self>>;
+      else
+        <<Close self>>;
+    Push:
+      if (self in room11)
+        <<Close self>>;
+      else
+        <<Open self>>;
+  ],
+  add_to_scope clamps seal handle latch,
+  found_in room11 room12,
+has door openable static;
+
+!----------------------------------------
+! Periscope
+!----------------------------------------
+Object periscope "periscope" room11
+with
+  name 'periscope',
+  description "You raise the periscope and look through the eyepiece. You must be too deep. All you can see is water.",
+has static;
+
+!----------------------------------------
+! Murphy's body
+!----------------------------------------
+Object murphy "Murphy's body" room11
+class Body
+with
+  parse_name
+  [ i;
+    while (NextWord() == 'navigator' or 'navigator^s' or 'body' or 'chief' or 'petty' or 'officer' or 'murphy' or 'murphy^s' or 'spuds' or 'spuds^')
+      i++;
+    return i;
+  ],
+  description "It's Chief Petty Officer Murphy, better known as Spuds. She's slumped lifeless over the control console, another victim of the gas. Murphy was the navigator and only female amongst the crew. Oh, man. What a terrible loss. You secretly had a crush on her.",
+has animate female proper;
+
+!========================================
+! Room 12: Torpedo Bay
+!========================================
+Object room12 "Torpedo Bay"
+with
+  description "This is the weapons and sensors section, but everyone refers to it as the torpedo bay. There are racks of torpedoes against the port and starboard walls of the hull and the closed torpedo tubes are in the bow of the sub to fore of you. You don't want to mess with any of this. The exit is via the bulkhead to aft.",
+  s_to fore_bulkhead,
+  before
+  [;
+    Hint:
+      "There's nothing to do here.";
+  ],
+has light;
+
+!----------------------------------------
+! Torpedo bay
+!----------------------------------------
+Object "torpedo bay" room12
+with
+  article THE,
+  parse_name
+  [ i;
+    while (NextWord() == 'torpedo' or 'bay' or 'bow' or 'weapon' or 'weapons//p' or 'sensor' or 'sensors//p')
+      i++;
+    return i;
+  ],
+  description "It's a large enclosed space in the bow of the submarine, but it appears confined because most of the space is occupied by the torpedoes and the rails and hydraulic equipment that loads the torpedoes into the torpedo tubes.",
+has scenery;
+
+!----------------------------------------
+! Torpedoes
+!----------------------------------------
+Object torpedoes "racks of torpedoes" room12
+with
+  article TWO,
+  parse_name
+  [ i;
+    while (NextWord() == 'rack' or 'racks//p' or 'of' or 'torpedo' or 'torpedoes//p')
+      i++;
+    return i;
+  ],
+  description "The racks containing the torpedoes line the port and starboard walls of the inner hull. There are 16 torpedoes, compared to the 12 to 38 torpedoes that are carried on a larger submarine. Most of the torpedoes have standard high-explosive warheads, but there's also a couple containing the new Razorback underwater drones.",
+has pluralname static;
+
+!----------------------------------------
+! Torpedo tubes
+!----------------------------------------
+Object "torpedo tubes" room12
+with
+  article TWO,
+  name 'torpedo' 'tube' 'tubes//p',
+  description "There are two torpedo tubes, each 21 inches (or 533 mm) in diameter. That may not sound like many compared to the four to eight tubes on a larger submarine, but the Puny class subs have a very fast loading system. The breach doors of the tubes are currently closed. Beneath the torpedo tubes are the water pump, flood tank, drain tank, water ram and masses of pipes and cables.",
+has pluralname static;
+
+!----------------------------------------
+! Breach doors
+!----------------------------------------
+Object "breach doors" room12
+with
+  article TWO,
+  name 'breach' 'door' 'doors//p',
+  description "The breach doors are permanently closed, except when loading a torpedo into one of the torpedo tubes.",
+has pluralname scenery;
+
+!----------------------------------------
+! Torpedo tube equipment
+!----------------------------------------
+Object "torpedo tube equipment" room12
+with
+  article SOME,
+  parse_name
+  [ i;
+    while (NextWord() == 'rail' or 'rails//p' or 'hydraulic' or 'equipment' or 'water' or 'pump' or 'flood' or 'tank' or 'drain' or 'ram' or 'pipe' or 'pipes//p' or 'cable' or 'cables//p')
+      i++;
+    return i;
+  ],
+  description "The masses of equipment surrounding the torpedo tubes are responsible for draining and filling the torpedo tube, loading and launching the torpedo, and so on. You don't want to mess with any of this.",
+has scenery;
+
+!========================================
+! Room 13: Communications Room
+!========================================
+Object room13 "Communications Room"
+with
+  description "You're in the comms room. It contains a variety of equipment, including radio and satellite communications systems, computers and electronic equipment used for data transmission and reception. There is some minor damage to the equipment, indicating signs of a struggle. The exit is to port.",
+  w_to room11,
+  before
+  [;
+    Hint:
+      if (mask in holland)
+        "Holland is alive. Try removing his gas mask so that you can talk to him.";
+      if (holland hasnt general)
+        "Try talking to Holland.";
+      if (holland.asked_about_bomb == false)
+        "Try asking Holland about lots of things, especially the bomb.";
+      if (green_wire hasnt general)
+        "Have you asked Holland about the red wire?";
+      print_ret (string)NOTHING_ELSE_TO_DO;
+  ],
+has light;
+
+!----------------------------------------
+! Communications room
+!----------------------------------------
+Object "communications room" room13
+with
+  article THE,
+  name 'communications' 'comms' 'room',
+  description "It's full of communications equipment. This is the sub's only means of communication with the outside world.",
+has scenery;
+
+!----------------------------------------
+! Communications equipment
+!----------------------------------------
+Object "communications equipment" room13
+with
+  article SOME,
+  parse_name
+  [ i;
+    while (NextWord() == 'radio' or 'satellite' or 'system' or 'systems//p' or 'computer' or 'computers//p' or 'electronic' or 'communications' or 'equipment')
+      i++;
+    return i;
+  ],
+  description "This is Spider's domain. He knows everything there is to know about communications equipment, whereas you know zilch.",
+has scenery;
+
+!----------------------------------------
+! Signs of struggle
+!----------------------------------------
+Object "signs of a struggle" room13
+with
+  name 'signs' 'of' 'struggle',
+  description "Well, there's a dead body for starters. Holland is badly wounded, some equipment seems to be damaged and there's blood all over the place.",
+has scenery;
+
+!----------------------------------------
+! Blood
+!----------------------------------------
+Object "blood" room13
+with
+  name 'blood',
+  description "It's a real mess. There's blood on the floor, blood on the dead body, blood on Holland, blood on the shotgun and blood splatter all over the equipment.",
+has scenery;
+
+!----------------------------------------
+! Holland
+!----------------------------------------
+Object holland "Holland" room13
+with
+  parse_name
+  [ i;
+    while (NextWord() == 'command' or 'master' or 'petty' or 'officer' or 'cmdcm' or 'holland' or 'chief' or 'of' or 'boat' or 'cob' or 'dutchy')
+      i++;
+    return i;
+  ],
+  initial "Holland is propped against a wall. He's bleeding badly.",
+  description
+  [;
+    print "It's Command Master Chief Petty Officer Holland, also known as Dutchy. He's the chief of the boat (or COB) and second in command to the skipper. He's ";
+    if (mask in self)
+      print "wearing a gas mask and ";
+    if (peas in self)
+      "holding a bag of frozen peas against his wounds.";
+    else
+      "bleeding quite badly.";
+  ],
+  life
+  [;
+    Ask:
+      if (mask in self)
+        "You can't hear what he's saying through the gas mask. It's safe to remove it now.";
+      if (self hasnt general)
+        "You should talk to him first, to find out what's going on.";
+      switch (second)
+      {
+        'bomb':
+          if (self.asked_about_bomb == false)
+          {
+            self.asked_about_bomb = true;
+            "~The saboteur said there's a bomb attached to the hull. It will explode if the sub surfaces, so I pressed the DIVE button. Whatever you do, don't surface unless the bomb is defused.~ This is very strange. Why would the saboteur tell Dutchy about the bomb? And how did he manage to tell him anything when his skull is smashed in? You should ask him about the bomb again.";
+          }
+          "You ask him about the bomb again. ~You need to cut the red wire.~ How does Dutchy know that the bomb has a red wire? You assume the saboteur must have told him.";
+        'bungy', 'me', 'myself', 'self', 'williams':
+          "~It's all up to you now, Bungy. You have to save the sub.~";
+        'gas':
+          "~He used sarin. It's a deadly neurotoxin. I only survived it because I was wearing a gas mask. The saboteur was wearing an aqualung.~ That's interesting. How did Dutchy know what sort of gas the saboteur used?";
+        'mask':
+          "~I'm just lucky there was a gas mask nearby.~ He certainly was lucky. Gas masks aren't normally stored in the communications room.";
+        'red', 'wire':
+          if (self.asked_about_bomb == false)
+            "You ask Dutchy about the red wire, but he just shrugs his shoulders. Maybe you should ask him about the bomb.";
+          else
+            "You ask Dutchy how he knew about the red wire. ~I don't know. Don't all bombs have a red wire?~";
+        'saboteur', 'webb', 'spider':
+          "~That's the mongrel there.~ Dutchy points to the dead saboteur. ~He was searching the sub, when I surprised him. He obviously wasn't expecting anyone to be alive. I managed to pin him down. He said we'd never escape because there's a bomb attached to the hull. Then he overpowered me and shot me. I managed to get the gun off him and bashed him over the head.~";
+        'navigator', 'murphy', 'spuds':
+          "~She was in the control room. I couldn't get to her, Bungy. She died because of me.~ He gets weepy again. Golly, the man has a heart. Or is he acting? You assure Dutchy that it wasn't his fault.";
+        'sub', 'submarine', 'uss', 'ibis', 'puny', 'class':
+          "~This sub is top secret. It's worth millions of dollars, so you can't let it get into enemy hands.~";
+        'holland', 'dutchy', 'himself', 'chief', 'cob':
+          "~I'll survive. Don't worry about me, just save the sub.~";
+        'skipper', 'captain', 'marshall':
+          "~The skipper was in his cabin.~";
+        'cook', 'barker', 'tubs':
+          "~Tubs would have been in the galley.~";
+        'engineer', 'mechanic', 'nelson', 'pickles':
+          "~I imagine that Pickles would have been in engineering.~";
+        'debris', 'bulkhead', 'door':
+          "~I don't know anything about the debris blocking the bulkhead door. I was here all the time.~ How does he know that the debris was blocking the bulkhead door if he was here all the time? Something sounds fishy.";
+        default:
+          "Dutchy just stares into space.";
+      }
+    Give:
+      if (noun == peas)
+      {
+        move peas to self;
+        print "Dutchy takes the peas and holds them against his wounds to stem the flow of blood. ";
+        if (mask in self)
+          "He nods his head in appreciation.";
+        else
+          "~Thanks, Bungy. That should help.~";
+      }
+    Talk:
+      if (mask in self)
+        "You can't hear what he's saying through the gas mask. It's safe to remove it now.";
+      if (self hasnt general)
+      {
+        give self general;
+        "~Bungy! Thank God, you're alive. I thought I was the only one to survive. I was in here when the siren went off, so I grabbed a gas mask. Spuds was the only other person in the control room, but I couldn't get to her in time.~ He then starts weeping and mumbling incoherently. You only recognise the words 'gas', 'saboteur' and 'bomb'. Perhaps you should ask him about something in particular.";
+      }
+      "~If you want to know anything else, just ask me about something.~";
+  ],
+  asked_about_bomb false,
+has animate transparent proper;
+
+!----------------------------------------
+! Gas mask
+!----------------------------------------
+Object mask "gas mask" holland
+with
+  parse_name
+  [ i;
+    while (NextWord() == 'gasmask' or 'gas' or 'mask' or 'joint' or 'service' or 'general' or 'purpose' or 'jsgpm' or 'm-50' or 'model')
+      i++;
+    return i;
+  ],
+  description "It's a Joint Service General Purpose Mask (JSGPM), specifically the M-50 model for shipboard personnel. It's lightweight and incorporates state-of-the-art technology to protect the wearer from 'actual or anticipated threats'. You reckon the USS Ibis' threat was an actual threat!",
+  before
+  [;
+    Remove:
+      if (self in holland)
+      {
+        move self to location;
+        <<Take self>>;
+      }
+    Take:
+      if (self in holland)
+        move self to location;
+    Wear:
+      if (aqualung has worn)
+        "You'll have to remove the aqualung first.";
+  ],
+has clothing;
+
+!----------------------------------------
+! Saboteur's body
+!----------------------------------------
+Object saboteur "saboteur's body" room13
+class Body
+with
+  article THE,
+  parse_name
+  [ i;
+    while (NextWord() == 'saboteur' or 'saboteur^s' or 'body' or 'petty' or 'officer' or 'first' or 'class' or 'webb' or 'webb^s' or 'spider' or 'spider^s')
+      i++;
+    return i;
+  ],
+  short_name
+  [;
+    if (self has proper)
+    {
+      print "Webb's body";
+      rtrue;
+    }
+  ],
+  description
+  [;
+    if (self hasnt proper)
+    {
+      give self proper;
+      print "He's lying face down in a pool of blood. It looks like he's been bashed over the head. When you roll him over, you see that it's Senior Petty Officer First Class Webb, or Spider to his mates. You can't believe that Spider is a saboteur. He has a wife and kid and he's an all-round good guy.";
+      if (aqualung in self)
+        print " He's wearing an aqualung.";
+      "";
+    }
+    print "It's Senior Petty Officer First Class Webb, better known as Spider to his mates. His head's been bashed in";
+    if (aqualung in self)
+      print " and he's wearing an aqualung";
+    ".";
+  ],
+has animate transparent;
+
+!----------------------------------------
+! Aqualung
+!----------------------------------------
+Object aqualung "aqualung" saboteur
+with
+  article AN,
+  parse_name
+  [ i;
+    while (NextWord() == 'aqualung' or 'scuba' or 'self-contained' or 'underwater' or 'breathing' or 'apparatus')
+      i++;
+    return i;
+  ],
+  description "It's a self-contained underwater breathing apparatus (or SCUBA) with a mouthpiece, diving regulator and air tank.",
+  before
+  [;
+    Remove:
+      StopDaemon(self);
+    Take:
+      if (self in saboteur)
+        move self to location;
+    Wear:
+      if (mask has worn)
+        "You'll have to remove the gas mask first.";
+      StartDaemon(self);
+  ],
+  daemon
+  [;
+    if (location has underwater && self hasnt worn)
+    {
+      deadflag = 1;
+      "^You have no breathing apparatus. You quickly lose your breath in the cold Atlantic seawater and your lungs burst.";
+    }
+  ],
+  add_to_scope parts,
+has clothing;
+
+!----------------------------------------
+! Parts of aqualung
+!----------------------------------------
+Object parts "parts of aqualung"
+with
+  parse_name
+  [ i;
+    while (NextWord() == 'mouthpiece' or 'diving' or 'regulator' or 'air' or 'tank')
+      i++;
+    return i;
+  ],
+  description "It's part of the aqualung.",
+has scenery;
+
+!----------------------------------------
+! Shotgun
+!----------------------------------------
+Object shotgun "shotgun" room13
+with
+  name 'shotgun' 'stock' 'butt',
+  description "It's empty. There's blood on the stock, lots of blood.",
+  before
+  [;
+    Take:
+      "It's evidence. You'd better leave it alone.";
+  ],
+has static;
+
+!----------------------------------------
+! Empty gas canister
+!----------------------------------------
+Object canister "empty gas canister" room13
+with
+  article AN,
+  name 'empty' 'metal' 'gas' 'canister',
+  description "It's a metal gas canister with no markings.",
+has;
+
+!========================================
+! Room 14: Long Corridor
+!========================================
+Object room14 "Long Corridor"
+with
+  description "You're in a long narrow corridor that runs the length of the sub. The corridor itself runs fore and aft, with a bulkhead to aft. There's an exit off the corridor to starboard.",
+  n_to room11,
+  s_to aft_bulkhead,
+  e_to room15,
+  before
+  [;
+    Hint:
+      if (debris in self)
+        "If you move that debris out of the way, you might be able to get to the bulkhead door.";
+      if (room15 hasnt visited)
+        "Make sure you go starboard.";
+      print_ret (string)NOTHING_ELSE_TO_DO;
+  ],
+has light;
+
+!----------------------------------------
+! Debris
+!----------------------------------------
+Object debris "debris" room14
+with
+  article SOME,
+  name 'debris' 'pipe' 'pipes//p' 'metal',
+  description "The debris consists of various pipes and assorted bits of metal. It appears to have been placed here deliberately to block the bulkhead door to aft.",
+  before
+  [;
+    Pull:
+      move self to limbo;
+      "You pull the debris away from the bulkhead and distribute it along the corridor so that it's no longer blocking the door.";
+    Push:
+      "You push the debris towards the bulkhead, but that only makes the situation worse. You need to pull it away from the door.";
+    Take:
+      "The debris is too heavy to take, but you could try dragging it away from the bulkhead.";
+  ],
+has static;
+
+!========================================
+! Room 15: Store Room
+!========================================
+Object room15 "Store Room"
+with
+  description "The store room is full of spare parts, tools, spare clothing and other supplies. The exit is to port.",
+  w_to room14,
+  before
+  [;
+    Hint:
+      if (locker has locked && pistol hasnt moved)
+        "I wonder what's in the locker? You'll need to unlock it, but not in the conventional way. Go back and check the skipper's cabin.";
+      if (locker has locked)
+        "You should never use firearms on a submarine, but this is one of those times when you can make an exception.";
+      "You've found everything you need here.";
+  ],
+has light;
+
+!----------------------------------------
+! Store room
+!----------------------------------------
+Object "store room" room15
+with
+  name 'store' 'room',
+  description "The store room holds a variety of supplies and equipment necessary for the submarine's operation.",
+has scenery;
+
+!----------------------------------------
+! Supplies
+!----------------------------------------
+Object "supplies" room15
+with
+  parse_name
+  [ i;
+    while (NextWord() == 'supplies//p' or 'equipment' or 'spare' or 'part' or 'parts//p' or 'tool' or 'tools//p' or 'clothing')
+      i++;
+    return i;
+  ],
+  description "You check through the supplies, but you can't find anything to help you out of your current predicament.",
+has scenery;
+
+!----------------------------------------
+! Locker
+!----------------------------------------
+Object locker "locker" room15
+with
+  parse_name
+  [ i;
+    while (NextWord() == 'storage' or 'locker' or 'grey' or 'painted' or 'metal' or 'air' or 'vent' or 'vents//p' or 'door')
+      i++;
+    return i;
+  ],
+  description
+  [;
+    print "It's a small storage locker made of grey painted metal with air vents on the front";
+    if (self hasnt locked)
+      print " and a hole blown in the door";
+    print ". ";
+    <<Search self>>;
+  ],
+  before
+  [;
+    Shoot:
+      if (second == nothing && pistol in player)
+      {
+        print "(with the pistol)^";
+        <<Shoot self pistol>>;
+      }
+      if (second == nothing)
+        rfalse;
+      if (second ~= pistol)
+        rfalse;
+      if (pistol has general)
+        "Click. The pistol is empty.";
+      give self ~locked;
+      give pistol general;
+      "BANG! You blow the lock off the locker. You should be able to open it now.";
+  ],
+has container lockable locked openable static;
+
+!----------------------------------------
+! Wetsuit
+!----------------------------------------
+Object wetsuit "wetsuit" locker
+with
+  parse_name
+  [ i;
+    while (NextWord() == 'wetsuit' or 'wet' or 'suit' or 'neoprene' or 'mask' or 'hood' or 'full' or 'hooded' or 'full-hooded' or 'glove' or 'gloves//p' or 'bootie' or 'booties//p')
+      i++;
+    return i;
+  ],
+  description "It's a full-hooded wetsuit with mask, gloves and booties. It has a super thick layer of neoprene for extra insulation in the cold Atlantic seawater.",
+  before
+  [;
+    Wear:
+      if (aqualung has worn)
+        "You can't put it on over the aqualung.";
+  ],
+  after
+  [;
+    Wear:
+      if (coveralls has worn)
+      {
+        give coveralls ~worn;
+        move coveralls to location;
+        "You can't wear the wetsuit over your coveralls, so you take them off and drop them on the floor, then put the wetsuit on.";
+      }
+  ],
+  daemon
+  [;
+    if (location has underwater && self hasnt worn)
+    {
+      deadflag = 1;
+      "^The sudden exposure to cold water causes cold shock response. Your blood vessels contract, resulting in a cardiac arrest.";
+    }
+  ],
+has clothing;
+
+!========================================
+! Room 16: Beneath Submarine's Hull
+!========================================
+Object room16 "Beneath Submarine's Hull"
+with
+  description "You're amidships beneath the submarine's hull. You can go fore to the bow of the submarine, aft to the stern or you can re-enter the submarine via the outer hatch above you.",
+  n_to room17,
+  s_to room18,
+  u_to outer_hatch,
+  d_to BOTTOM_OF_OCEAN,
+  cant_go UNKNOWN_TERRITORY,
+  before
+  [;
+    Hint:
+      if (room17 hasnt visited)
+        "You can go fore to the bow of the sub.";
+      if (room18 hasnt visited)
+        "You can go aft to the stern of the sub.";
+      "You can go up to return to the airlock.";
+  ],
+has light underwater;
+
+!----------------------------------------
+! Submarine's hull (floating object)
+!----------------------------------------
+Object "submarine's hull"
+with
+  article THE,
+  parse_name
+  [ i;
+    while (NextWord() == 'submarine^s' or 'hull' or 'metal' or 'plate' or 'plates//p' or 'protective' or 'coating' or 'coatings//p' or 'tile' or 'tiles//p')
+      i++;
+    return i;
+  ],
+  description "The hull is made from two-inch thick metal plates painted with various protective coatings. Sound-absorbent tiles are attached to the outside of the hull to dampen the return signal if the sub gets pinged by sonar.",
+  found_in room16 room17 room18,
+has scenery;
+
+!========================================
+! Room 17: Bow of Submarine's Hull
+!========================================
+Object room17 "Bow of Submarine's Hull"
+with
+  description "You're at the bow, beneath the submarine's hull. You can see the muzzle doors of the torpedo tubes above you, in the rounded end of the hull. Swimming aft will return you to amidships.",
+  s_to room16,
+  u_to HULL_ABOVE_YOU,
+  d_to BOTTOM_OF_OCEAN,
+  cant_go UNKNOWN_TERRITORY,
+  before
+  [;
+    Hint:
+      if (room18 hasnt visited)
+        "Nope, nothing here. Have you tried the stern of the sub?";
+      "There's nothing to do here.";
+  ],
+has light underwater;
+
+!----------------------------------------
+! Muzzle doors
+!----------------------------------------
+Object "muzzle doors" room17
+with
+  article TWO,
+  name 'muzzle' 'door' 'doors//p' 'bow',
+  description "The muzzle doors are closed. They're always closed except when there's an armed torpedo in the tube ready to be fired.",
+has scenery;
+
+!----------------------------------------
+! Torpedo tube
+!----------------------------------------
+Object "torpedo tube" room17
+with
+  name 'torpedo' 'tube' 'tubes//p',
+  description "You can't see the torpedo tubes from here, because they're hidden behind the muzzle doors.",
+has scenery;
+
+!========================================
+! Room 18: Stern of Submarine's Hull
+!========================================
+Object room18 "Stern of Submarine's Hull"
+with
+  n_to room16,
+  u_to HULL_ABOVE_YOU,
+  d_to BOTTOM_OF_OCEAN,
+  cant_go UNKNOWN_TERRITORY,
+  description "You're at the stern, beneath the submarine's hull. The gigantic propeller of the submarine's propulsion system looms above you. Swimming fore will return you to amidships.",
+  before
+  [;
+    Hint:
+      if (red_wire in nothing)
+        "Examine the bomb!";
+      if (holland.asked_about_bomb == false)
+        "You'll need to cut one of the wires, but you know nothing about bombs. Have you asked Holland about the bomb?";
+      if (pliers in nothing)
+        "Have you found something to cut the wires? Maybe you should sleep on it? Or maybe someone else was sleeping on it...if you get my drift.";
+      if (green_wire hasnt general)
+        "Have you asked Holland about the red wire?";
+      "You've cut the green wire and the bomb didn't explode, so there's nothing else to do here.";
+  ],
+has light underwater;
+
+!----------------------------------------
+! Propeller
+!----------------------------------------
+Object "propeller" room18
+with
+  parse_name
+  [ i;
+    while (NextWord() == 'propulsion' or 'system' or 'propeller' or 'screw' or 'stern')
+      i++;
+    return i;
+  ],
+  description "The gigantic propeller (or screw) is the only part of the propulsion system that's visible outside the submarine. The engines and power plant are inside the sub. Luckily for you, the propeller is not currently spinning.",
+has scenery;
+
+!----------------------------------------
+! Bomb attached to submarine
+!----------------------------------------
+Object bomb "bomb" room18
+with
+  name 'magnet' 'magnetic' 'bomb' 'led',
+  description
+  [;
+    print "It's a magnetic bomb that's attached to the submarine's hull by a very strong magnet. There's no way you can remove it.";
+    if (green_wire hasnt general)
+      print " A red LED is lit. You presume this to mean that the bomb is armed.";
+    if (red_wire in nothing)
+    {
+      move both_wires to location;
+      move red_wire to location;
+      move green_wire to location;
+      print " You can see two wires exposed outside the body of the bomb, one red and one green. Those colours don't conform to IEEE standards. That sounds like a safety violation!";
+    }
+    "";
+  ],
+has static;
+
+!----------------------------------------
+! Wires
+!----------------------------------------
+Object both_wires "wires"
+with
+  name 'Wires//p',
+  description "There's two of them, one red and one green.",
+  before
+  [;
+    Cut, Pull, Take:
+      "You'll have to be more specific - the red wire or the green wire.";
+  ],
+has scenery;
+
+!----------------------------------------
+! Red wire
+!----------------------------------------
+Object red_wire "red wire"
+with
+  name 'red' 'wire',
+  description
+  [;
+    print "It's a red wire";
+    if (self has general)
+      " that's been cut.";
+    else
+      ". Red means STOP. You wonder if the colour is significant.";
+  ],
+  before
+  [;
+    Cut:
+      if (second == nothing && pliers in player)
+      {
+        print "(with the pliers)^";
+        <<Cut self pliers>>;
+      }
+      if (second == nothing)
+        "You'll have to tell me what to cut it with.";
+      if (second ~= pliers)
+        "You'll need something sharper than ", (ThatOrThose)second, ".";
+      if (green_wire has general)
+      {
+        give self general;
+        "Nothing happens. Whew! That confirms that the bomb is defused.";
+      }
+      deadflag = 1;
+      "You cut the red wire. The red LED starts flashing like crazy and BOOOM! A hole is blown in the sub's hull, seawater is sucked in and the submarine is flooded. But you don't get to see any of this, because you're blown to pieces. You are now shark food.";
+    Pull, Take:
+      print_ret (string)ATTACHED_TO_BOMB;
+  ],
+has static;
+
+!----------------------------------------
+! Green wire
+!----------------------------------------
+Object green_wire "green wire"
+with
+  name 'green' 'wire',
+  description
+  [;
+    print "It's a green wire";
+    if (self has general)
+      " that's been cut.";
+    else
+      ". Green means GO. You wonder if the colour is significant.";
+  ],
+  before
+  [;
+    Cut:
+      if (second == nothing && pliers in player)
+      {
+        print "(with the pliers)^";
+        <<Cut self pliers>>;
+      }
+      if (second == nothing)
+        "You'll have to tell me what to cut it with.";
+      if (second ~= pliers)
+        "You'll need something sharper than ", (ThatOrThose)second, ".";
+      if (self has general)
+        "You've already cut it.";
+      give self general;
+      "You cut the green wire. The red LED goes out. There is no explosion, so it looks like you've defused the bomb. Congratulations. Now you need to get the sub back to the surface.";
+    Pull, Take:
+      print_ret (string)ATTACHED_TO_BOMB;
+  ],
+has static;
+
+!========================================
+! Limbo
+!========================================
+Object limbo;
+
+!========================================
+! Printing rules
+!========================================
+[ consultWord word i;
+  for (i=0:i<WordLength(word):i++)
+    print (char)LowerCase(WordAddress(word)->i);
+];
+
+[ DoesntOrDont obj;
+  if (obj has pluralname)
+    print "don't";
+  else
+    print "doesn't";
+];
+
+[ firstConsultWord word i;
+  for (i=0:i<WordLength(word):i++)
+    if (i == 0)
+      print (char)UpperCase(WordAddress(word)->i);
+    else
+      print (char)LowerCase(WordAddress(word)->i);
+];
+
+!========================================
+! Other routines
+!========================================
+#Ifdef DUMMYSYMBOL;
+[ DirectionsParseName _parse _i _w _arr;
+#Ifnot;
+[ DirectionsParseName _parse _i _w;
+#Endif; !DUMMYSYMBOL
+#Ifdef DUMMYSYMBOL;
+  @log_shift wn 2 -> _parse; ! Multiply by 4
+  _parse = parse + _parse - 2;
+  _w = _parse-->0;
+  _arr = _direction_dict_words;
+  if(normal_directions_enabled)
+  {
+    @scan_table _w _arr (DIRECTION_COUNT * 2) -> _i ?_matched_word_in_list;
+    #Ifndef OPTIONAL_SHIP_DIRECTIONS;
+    if(_w == 'floor' or 'ground')
+    {
+      selected_direction_index = DIRECTION_COUNT - 2;
+      jump _matched_and_have_set_dir_index;
+    }
+    #Endif;
+  }
+  #Ifdef OPTIONAL_SHIP_DIRECTIONS;
+  _arr = _ship_direction_dict_words;
+  if(ship_directions_enabled)
+    @scan_table _w _arr (DIRECTION_COUNT * 2) -> _i ?_matched_word_in_list;
+  if((normal_directions_enabled || ship_directions_enabled) && _w == 'floor' or 'ground')
+  {
+    selected_direction_index = DIRECTION_COUNT - 2;
+    jump _matched_and_have_set_dir_index;
+  }
+  #Endif;
+! no match
+! selected_direction_index = 0;
+! selected_direction = 0;
+  return 0;
+  ._matched_word_in_list;
+  _i = _i - _arr;
+  @log_shift _i (-1) -> _i; ! Divide by 2
+  selected_direction_index = (_i % DIRECTION_COUNT) + 1;
+  ._matched_and_have_set_dir_index;
+  selected_direction = direction_properties_array -> selected_direction_index;
+  return 1;
+#Ifnot;
+  ! This is V3
+  _parse = parse+4*wn-2;
+  _w = _parse-->0;
+  if(normal_directions_enabled)
+  {
+    #Ifndef OPTIONAL_SHIP_DIRECTIONS;
+    @je _w 'out' ?_matched_out;
+    @je _w 'in' ?_matched_in;
+    @je _w 'd//' 'down' ?_matched_d;
+    @je _w 'floor' 'ground' ?_matched_d;
+    @je _w 'u//' 'up' ?_matched_u;
+    #Endif; !OPTIONAL_SHIP_DIRECTIONS
+    #Ifdef OPTIONAL_FULL_DIRECTIONS;
+    @je _w 'se' 'southeast' ?_matched_se;
+    @je _w 'sw' 'southwest' ?_matched_sw;
+    @je _w 'ne' 'northeast' ?_matched_ne;
+    @je _w 'nw' 'northwest' ?_matched_nw;
+    #Endif; !OPTIONAL_FULL_DIRECTIONS
+    @je _w 'e//' 'east' ?_matched_e;
+    @je _w 'w//' 'west' ?_matched_w;
+    @je _w 's//' 'south' ?_matched_s;
+    @je _w 'n//' 'north' ?_matched_n;
+  }
+  #Ifdef OPTIONAL_SHIP_DIRECTIONS;
+  if(normal_directions_enabled || ship_directions_enabled)
+  {
+    @je _w 'out' ?_matched_out;
+    @je _w 'in' ?_matched_in;
+    @je _w 'd//' 'down' ?_matched_d;
+    @je _w 'floor' 'ground' ?_matched_d;
+    @je _w 'u//' 'up' ?_matched_u;
+  }
+  if(ship_directions_enabled)
+  {
+    @je _w 's//' 'starboard' ?_matched_e;
+    @je _w 'p//' 'port' ?_matched_w;
+    @je _w 'a//' 'aft' ?_matched_s;
+    @je _w 'f//' 'fore' ?_matched_n;
+  }
+  #Endif; ! OPTIONAL_SHIP_DIRECTIONS
+! No direction was matched
+! selected_direction_index = 0;
+! selected_direction = 0;
+  return 0;
+  ._matched_out;
+  @inc _i;
+  ._matched_in;
+  @inc _i;
+  ._matched_d;
+  @inc _i;
+  ._matched_u;
+  @inc _i;
+  #Ifdef OPTIONAL_FULL_DIRECTIONS;
+  ._matched_sw;
+  @inc _i;
+  ._matched_se;
+  @inc _i;
+  ._matched_nw;
+  @inc _i;
+  ._matched_ne;
+  @inc _i;
+  #Endif; !OPTIONAL_FULL_DIRECTIONS
+  ._matched_w;
+  @inc _i;
+  ._matched_e;
+  @inc _i;
+  ._matched_s;
+  @inc _i;
+  ._matched_n;
+  @inc _i;
+  selected_direction_index = _i;
+  selected_direction = direction_properties_array -> selected_direction_index;
+  return 1;
+#Endif; !DUMMYSYMBOL
+];
+
+[ LowerCase c; ! for ZSCII matching ISO 8859-1
+  switch (c)
+  {
+    'A' to 'Z': c = c + 32;
+    202, 204, 212, 214, 221: c--;
+    217, 218: c = c - 2;
+    158 to 160, 167, 168, 208 to 210: c = c - 3;
+    186 to 190, 196 to 200: c = c - 5 ;
+    175 to 180: c = c - 6;
+  }
+  return c;
+];
+
+[ PlayerDescription;
+  "You are Seaman Recruit Williams, but everyone calls you Bungy. ";
+];
+
+[ TimeOfDay hours mins pm;
+  hours = (the_time + 1) / 60;
+  if (hours > 11)
+  {
+    hours = hours - 12;
+    pm = true;
+  }
+  if (hours == 0)
+    hours = 12;
+  mins = (the_time + 1) % 60;
+  print hours, ":", mins/10, mins%10, " ";
+  if (pm)
+    print "p.m.";
+  else
+    print "a.m.";
+];
+
+[ UpperCase c; ! for ZSCII matching ISO 8859-1
+  switch (c)
+  {
+    'a' to 'z': c = c - 32;
+    201, 203, 211, 213, 220: c++;
+    215, 216: c = c + 2;
+    155 to 157, 164, 165, 205 to 207: c = c + 3;
+    181 to 185, 191 to 195: c = c + 5 ;
+    169 to 174: c = c + 6;
+  }
+  return c;
+];
+
+!========================================
+! Grammar
+!========================================
+Extend 'cut' first
+  * noun 'with' held -> Cut;
+
+Extend 'lock' first
+  * noun -> Lock;
+
+Extend 'look'
+  * 'into' noun -> Search
+  * 'under' noun -> LookUnder;
+
+Extend 'put'
+  * 'down' multiheld -> Drop
+  * multiheld 'down' -> Drop;
+
+Extend 'read' first
+  * noun -> Read;
+
+Extend only 'say' first
+  * -> Say
+  * topic -> Say;
+
+Extend only 'screw' replace
+  * noun -> Screw
+  * noun 'with' noun -> Screw
+  * 'in' noun  -> Screw
+  * 'in' noun 'with' noun -> Screw
+  * noun 'off'/'out' -> Unscrew
+  * noun 'off'/'out' 'with' noun -> Unscrew
+  * 'off'/'out' noun -> Unscrew
+  * 'off'/'out' noun 'with' noun-> Unscrew;
+
+Extend only 'speak' replace
+  * -> Talk
+  * creature -> Talk
+  * noun -> Talk
+  * 'to'/'with' creature -> Talk
+  * 'to'/'with' noun -> Talk
+  * 'to'/'with' creature 'about' topic -> Ask
+  * 'to'/'with' noun 'about' topic -> Ask;
+
+Extend 'unlock' first
+  * noun -> Unlock;
+
+Extend only 'unscrew' replace
+  * noun -> Unscrew
+  * noun 'with' noun -> Unscrew;
+
+Verb meta 'about' 'info'
+  * -> About;
+
+Verb meta 'credits'
+  * -> Credits;
+
+Verb 'fire'
+  * held -> Fire
+  * held 'at' noun -> Shoot reverse
+  * 'at' noun 'with' held -> Shoot;
+
+Verb 'frisk' = 'search';
+
+Verb meta 'help' 'instructions'
+  * -> Help;
+
+Verb 'hint' 'clue'
+  * -> Hint;
+
+Verb 'kick'
+  * noun -> Kick;
+
+Verb 'shoot'
+  * -> Shoot
+  * noun -> Shoot
+  * noun 'with' held -> Shoot
+  * 'at' noun -> Shoot
+  * 'at' noun 'with' held -> Shoot
+  * held 'at' noun -> Shoot reverse;
+
+Verb 'snooze' = 'sleep';
+
+Verb 'spray' 'lubricate' 'squirt'
+  * -> Spray
+  * noun -> Spray
+  * noun 'with' noun -> Spray;
+
+Verb 'talk' 'babble' 'chat' 'communicate' 'converse' 'gab' 'gossip'
+  * -> Talk
+  * creature -> Talk
+  * noun -> Talk
+  * 'to'/'with' creature -> Talk
+  * 'to'/'with' noun -> Talk
+  * 'to'/'with' creature 'about' topic -> Ask
+  * 'to'/'with' noun 'about' topic -> Ask;
+
+Verb 'xyzzy' 'plover' 'plugh' 'yoho'
+  * -> MagicWord;
+
+!========================================
+! Actions
+!========================================
+[ AboutSub;
+  print "This game was written for PunyJam #3, which ran from 2-26 February 2023. Under the rules of the jam, the game had to start at or in an airlock.^^The idea for the game came from an unpublished Atari BASIC program called 'Sabotage Part 1' written by Tony Longworth in 1987.^^";
+  <<Credits>>;
+];
+
+[ CreditsSub;
+  "Concept by Tony Longworth.^Game design and coding by Garry Francis.^Play testing by Dee Cooke, Francesco Ariis, Gianluca Girelli, Jonathan, Larry Horsfield, Max Fog and Rovarsson.";
+];
+
+[ FireSub;
+  if (noun == nothing)
+    "You'll have to tell me what to fire.";
+  if (ObjectIsUntouchable(noun))
+    return;
+  "You'll have to tell me what to fire at.";
+];
+
+[ GoSub _prop;
+  if (selected_direction == ne_to or nw_to or se_to or sw_to)
+    "There are no diagonal directions in this game.";
+  _prop = selected_direction;
+#Iftrue RUNTIME_ERRORS > RTE_MINIMUM;
+  if (_prop == 0)
+    return _RunTimeError(ERR_INVALID_DIR_PROP);
+#Endif;
+  GoDir(_prop);
+];
+
+[ HelpSub;
+  print "Tell me what to do using simple commands starting with a verb.^^Use LOOK (or L) to refresh the location description. Identify all the objects in the description and EXAMINE (or X) each one. Read responses carefully for hints.^^Use nautical directions FORE, AFT, PORT and STARBOARD (or F, A, P, S) to move around. You can also use UP and DOWN (U and D). Draw a map as you go.^^Use GET or TAKE to take objects and DROP to drop them again. Use INVENTORY (or I) to see what you're carrying.^^Use AGAIN (or G) to repeat the last command.^^Use WAIT (or Z) to pass time without doing anything in particular.^^";
+#Ifv5;
+  print "Use UNDO to undo the last command if you get killed or make a mistake.^^";
+#Endif;
+  "Use SAVE to save the game and RESTORE to restore it again. Use QUIT (or Q) to end the game or RESTART to restart from the beginning.^^There are over 100 verbs that you can use, so if something doesn't work, try a different verb or a different way of doing things. Use HINT if you get stuck.";
+];
+
+[ HintSub;
+  "Examine everything you find and draw a map.";
+];
+
+[ KickSub;
+  if (ObjectIsUntouchable(noun))
+    return;
+  if (noun == player)
+    "You would have to be double-jointed to kick yourself.";
+  "Did you get a kick out of that?";
+];
+
+[ LockSub k;
+  if (ObjectIsUntouchable(noun))
+    return;
+  if (noun hasnt lockable)
+  {
+    PrintMsg(MSG_LOCK_NOT_A_LOCK, 'lock');
+    rtrue;
+  }
+  if (noun has locked)
+  {
+    PrintMsg(MSG_LOCK_ALREADY_LOCKED);
+    rtrue;
+  }
+  if (noun has open)
+  {
+    PrintMsg(MSG_LOCK_CLOSE_FIRST);
+    rtrue;
+  }
+  k = RunRoutines(noun, with_key);
+  if (second == nothing && k ~= nothing && k in player)
+  {
+    second = k;
+    print "(with ", (the)second, ")^";
+  }
+  if (second == nothing)
+    "You don't have the key.";
+  if (second ~= k)
+  {
+    PrintMsg(MSG_LOCK_KEY_DOESNT_FIT);
+    rtrue;
+  }
+  give noun locked;
+  run_after_routines_msg = MSG_LOCK_DEFAULT;
+  run_after_routines_arg_1 = 'lock';
+];
+
+[ LookUnderSub;
+  if (location == thedark)
+    "But it's dark.";
+  "You find nothing of interest.";
+];
+
+[ MagicWordSub;
+  "Aw, come on. Let's be serious. Do you really expect a magic word to work aboard a top secret submarine?";
+];
+
+[ ReadSub;
+  if (ObjectIsUntouchable(noun, true))
+    "I suppose you read tea leaves, too";
+  "There's nothing legible on ", (ThatOrThose)noun, ".";
+];
+
+[ SaySub i;
+  if (consult_words == 0)
+    "You have nothing to say.";
+  print "~";
+  i = consult_from;
+  print (firstConsultWord)i++;
+  while (i < consult_from + consult_words)
+    print " ", (consultWord)i++;
+  print ".~^^";
+  if (AfterRoutines())
+    return;
+  wn = consult_from;
+  if (consult_words == 1 && NextWord() == 'xyzzy' or 'plover' or 'plugh' or 'yoho')
+    <<MagicWord>>;
+  "Nothing happens.";
+];
+
+[ ScrewSub;
+  if (ObjectIsUntouchable(noun))
+    return;
+  "You can't screw ", (ThatOrThose)noun, ".";
+];
+
+[ ShootSub;
+  if (noun == nothing)
+    "You point your finger in the air and say, ~Bang!~";
+  "You can't just go around shooting things arbitrarily, especially in a submarine. Choose your target carefully.";
+];
+
+[ SpraySub;
+  if (noun == nothing)
+    "You'll have to tell me what to ", (address)verb_word, ".";
+  if (second == nothing)
+  {
+    if (TestScope(wd40) && ~~ObjectIsUntouchable(wd40, true))
+    {
+      second = wd40;
+      print "(with the can of WD-40)^";
+    }
+    else
+      "You'll have to tell me what to ", (address)verb_word, " ", (ItOrThem)noun, " with.";
+  }
+  if (second ~= wd40)
+    "You can't ", (address)verb_word, " anything with ", (ThatOrThose)second, ".";
+  if (noun == second)
+    "You can't ", (address)verb_word, " it with itself.";
+  if (AfterRoutines() || keep_silent == 1)
+    rtrue;
+  "You ", (address)verb_word, " ", (the)noun, " with ", (the)second, ", but it doesn't do anything.";
+];
+
+[ TalkSub;
+  if (noun == nothing)
+    "You start talking to no one in particular.";
+  if (noun == player)
+    "You start talking to yourself, but it's a one-sided conversation.";
+  if (RunLife(noun, ##Talk))
+    rtrue;
+  print_ret (The)noun, " ", (IsOrAre)noun, " not very talkative.";
+];
+
+[ UnlockSub k;
+  if (ObjectIsUntouchable(noun))
+    return;
+  if (noun hasnt lockable)
+  {
+    PrintMsg(MSG_UNLOCK_NOT_A_LOCK, 'unlock');
+    rtrue;
+  }
+  if (noun hasnt locked)
+  {
+    PrintMsg(MSG_UNLOCK_ALREADY_UNLOCKED, 'unlock');
+    rtrue;
+  }
+  k = RunRoutines(noun, with_key);
+  if (second == nothing && k ~= nothing && k in player)
+  {
+    second = k;
+    print "(with ", (the)second, ")^";
+  }
+  if (second == nothing)
+    "You don't have the key.";
+  if (second ~= k)
+  {
+    PrintMsg(MSG_UNLOCK_KEY_DOESNT_FIT);
+    rtrue;
+  }
+  give noun ~locked;
+  run_after_routines_msg = MSG_UNLOCK_DEFAULT;
+  run_after_routines_arg_1 = 'unlock';
+];
+
+[ UnscrewSub;
+  if (ObjectIsUntouchable(noun))
+    return;
+  "You can't unscrew ", (ThatOrThose)noun, ".";
+];
+
+End;
