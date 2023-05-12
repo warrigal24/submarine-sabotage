@@ -12,7 +12,7 @@ SLEEP (you're woken by a bang, it feels like sub has landed on ocean floor)
 (X WATCH) (it should be safe to leave airlock now)
 OPEN INNER HATCH
 U
-(U) (opening is out of reach)
+(U) (grille is out of reach)
 A (you see Nelson's body)
 SEARCH NELSON (you find a screwdriver)
 GET SCREWDRIVER
@@ -55,7 +55,7 @@ S (you see saboteur's body & Holland is bleeding badly)
 GET AQUALUNG
 (X SHOTGUN) (it's empty & there's blood on the stock)
 (X HOLLAND) (he's wearing a gas mask)
-(TALK TO HOLLAND) (you can't hear him through the gas mask)
+(TALK TO HIM) (you can't hear him through the gas mask)
 (GET GAS MASK)
 (TALK TO HOLLAND) (he starts mumbling incoherently about gas, saboteur & bomb)
 (ASK HIM ABOUT GAS) (it was sarin, but how would Holland hav known that?)
@@ -78,7 +78,7 @@ A
 P
 X BUNKS (you find a pair of pliers on Nelson's bunk)
 GET PLIERS
-(X IT) (used to grip, splice or cut wires, and strip insulation)
+(X THEM) (used to grip, splice or cut wires, and strip insulation)
 S
 D
 CLOSE INNER HATCH
