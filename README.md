@@ -17,3 +17,5 @@ This is a traditional text adventure that was written for [PunyJam #3](https://i
 Release 1 was compiled with Inform 6 version 6.41 and the PunyInform library version 4.2. You may need to make changes if using later versions.
 
 Release 2 fixes a bug where you could unknowingly exceed the maximum number of objects that are allowed to be in scope. This was compiled with Inform 6 version 6.41 and the PunyInform library version 4.3. You may need to make changes if using later versions.
+
+Release 3 fixes a few small bugs, including the one that placed the Atlantic Ocean off the coast of Alaska. D'oh! There are lots of little changes, including more synonyms, replacement of some of the default system messages and some optimisations to reduce the file size for 8-bit systems. There are no changes to the game play.
