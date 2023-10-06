@@ -10,7 +10,7 @@ The USS Ibis is currently on a training exercise in the North Atlantic, just off
 
 You are now alone and have no idea what is happening throughout the rest of the sub. You can't leave the airlock through the inner hatch (the one you entered by), or you'll get gassed, and you can't leave through the outer hatch, or you'll drown. What can you do?
 
-This is a traditional text adventure that was written for [PunyJam #3](https://itch.io/jam/punyjam-3), 2-26 February 2023. The game is hosted at [Submarine Sabotage](https://warrigal.itch.io/submarine-sabotage).
+This is a traditional text adventure that was written for [PunyJam #3](https://itch.io/jam/punyjam-3), 2-26 February 2023.
 
 ## Release notes
 
